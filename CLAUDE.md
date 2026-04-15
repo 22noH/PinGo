@@ -92,13 +92,28 @@ ERROR    → GitLab 연결 실패    아이콘: icon-error.png    (검정)
    - 결과 스트리밍 렌더링 (마크다운)
    - [GitLab 댓글 등록] → Discussions API
 
+## Orchestrator 시작 방법
+"시작해라" 입력 시 Claude는 Orchestrator로 동작한다.
+`--system-prompt` 없이 Agent 툴로 팀을 구성한다:
+
+```
+1. TeamCreate(team_name: "pingo")
+2. Agent(name: "architect", team_name: "pingo", run_in_background: true, prompt: .claude/architect/CLAUDE.md 내용 기반)
+3. Agent(name: "backend",   team_name: "pingo", run_in_background: true, ...)
+4. Agent(name: "frontend",  team_name: "pingo", run_in_background: true, ...)
+5. Agent(name: "reviewer",  team_name: "pingo", run_in_background: true, ...)
+6. SendMessage(to: "*", ...) 킥오프 브로드캐스트
+```
+
+각 에이전트 상세 역할: `.claude/{역할}/CLAUDE.md` 참조
+
 ## Agent 통신 규칙
-- 모든 Agent는 작업 전 agent-bus/ 전체 읽기
+- 팀원은 SendMessage로 직접 소통 (파일 기반 폴링 불필요)
 - 완료/보고는 자신의 agent-bus/{name}.md 에 기록
 - STATUS: IN_PROGRESS / DONE / BLOCKED / REVIEW_REQUIRED
 - 다른 Agent 파일 직접 수정 금지
-- Orchestrator 지시 없이 다음 단계 진행 금지
-- 불확실하면 추측 말고 BLOCKED + 질문 기록
+- 불확실하면 추측 말고 Orchestrator에 질문
+- 팀 config: ~/.claude/teams/pingo/config.json (팀원 목록)
 
 ## 금지사항
 - any 타입 사용 금지
