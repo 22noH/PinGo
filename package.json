@@ -1,0 +1,57 @@
+{
+  "name": "pingo",
+  "version": "0.1.0",
+  "description": "GitLab MR tray notifier with Claude AI review",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:watch": "tsc -p tsconfig.json --watch",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron . --dev",
+    "generate-icons": "node scripts/generate-icons.js",
+    "dist": "npm run build && electron-builder --win nsis"
+  },
+  "keywords": [
+    "electron",
+    "gitlab",
+    "merge-request",
+    "claude",
+    "tray"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "electron-log": "^5.2.0",
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.5",
+    "sharp": "^0.33.5",
+    "typescript": "^5.5.4"
+  },
+  "build": {
+    "appId": "com.pingo.app",
+    "productName": "Pingo",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "src/renderer/**/*.html",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon-active.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

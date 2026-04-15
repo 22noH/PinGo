@@ -1,0 +1,164 @@
+/* ============================================================
+   pingo — 마크다운 (marked.js) 렌더링 + 스트리밍 커서
+   review 윈도우 AI 리뷰 패널에서 주로 사용.
+   ============================================================ */
+
+/* ── 스트리밍 커서 ────────────────────────────────────── */
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent-purple);
+  animation: cursor-blink 1000ms steps(2, end) infinite;
+}
+
+@keyframes cursor-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-cursor { animation: none; opacity: 1; }
+}
+
+/* ── 마크다운 컨테이너 ────────────────────────────────── */
+.markdown {
+  font-size: var(--fs-md);
+  line-height: 1.65;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.markdown > * + * { margin-top: var(--space-3); }
+
+/* 제목 */
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 {
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+.markdown h1 {
+  font-size: var(--fs-2xl);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-2);
+}
+.markdown h2 { font-size: var(--fs-xl); color: var(--accent-blue); }
+.markdown h3 { font-size: var(--fs-lg); color: var(--accent-purple); }
+.markdown h4 {
+  font-size: var(--fs-md);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.markdown p { margin: 0; }
+
+/* 리스트 */
+.markdown ul, .markdown ol {
+  margin: 0;
+  padding-left: var(--space-6);
+}
+.markdown li + li   { margin-top: var(--space-1); }
+.markdown li::marker { color: var(--text-muted); }
+
+/* 인라인 강조 */
+.markdown strong { color: var(--text-primary); font-weight: 600; }
+.markdown em     { color: var(--accent-yellow); font-style: normal; }
+
+/* 인용 */
+.markdown blockquote {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-left: 3px solid var(--accent-purple);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* 코드 (인라인/블록) */
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 1px 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--accent-yellow);
+}
+.markdown pre {
+  margin: 0;
+  padding: var(--space-4);
+  background: #151626;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  line-height: 1.55;
+}
+.markdown pre code {
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
+/* 테이블 */
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.markdown th, .markdown td {
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+}
+.markdown th {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* 링크 */
+.markdown a          { color: var(--accent-blue); text-decoration: none; }
+.markdown a:hover    { color: var(--accent-blue-hover); text-decoration: underline; }
+
+/* 구분선 */
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: var(--space-4) 0;
+}
+
+/* 자동 스크롤 컨테이너 (review 패널에서 사용) */
+.stream-scroll {
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding: var(--space-4) var(--space-5);
+}
+
+/* 에러 상자 (review:error 수신 시) */
+.review-error {
+  border: 1px solid rgba(243, 139, 168, 0.30);
+  background: rgba(243, 139, 168, 0.08);
+  color: var(--accent-red);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.review-error .review-error-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.review-error .review-error-message {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
