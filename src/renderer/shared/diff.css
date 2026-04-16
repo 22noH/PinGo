@@ -48,10 +48,12 @@
   table-layout: fixed;
 }
 
+/* colgroup으로 열 너비 고정 */
+.dc-col-gutter { width: 44px; }
+.dc-col-code   { width: auto; }
+
 /* 거터 (줄 번호) */
 .dc-gutter {
-  width: 44px;
-  min-width: 44px;
   padding: 0 8px;
   text-align: right;
   color: var(--text-muted);
@@ -61,16 +63,16 @@
   vertical-align: top;
   font-size: 12px;
   opacity: 0.7;
+  overflow: hidden;
 }
 
 /* 코드 셀 */
 .dc-code {
   padding: 0 16px;
   white-space: pre;
-  overflow: visible;
   vertical-align: top;
   color: var(--text-secondary);
-  word-break: break-all;
+  overflow: hidden;
 }
 
 /* hunk 헤더 (@@ … @@) */

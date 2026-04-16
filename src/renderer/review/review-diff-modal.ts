@@ -35,7 +35,14 @@ export function openDiffModal(change: ItemChange): void {
       </div>
     </header>
     <div class="modal-body diff-modal-body">
-      <table class="diff-table" cellspacing="0" cellpadding="0"><tbody id="diff-tbody"></tbody></table>
+      <table class="diff-table" cellspacing="0" cellpadding="0">
+        <colgroup>
+          <col class="dc-col-gutter">
+          <col class="dc-col-gutter">
+          <col class="dc-col-code">
+        </colgroup>
+        <tbody id="diff-tbody"></tbody>
+      </table>
     </div>
   `;
 
