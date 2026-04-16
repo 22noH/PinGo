@@ -9,7 +9,8 @@ import type {
   ReviewItemWithChanges,
   TrayState,
 } from '../shared/types';
-import { createMockTestItem, createMockTestItem2 } from './mock-test-item';
+// TEST: 목업 테스트 시 아래 import 주석 해제
+// import { createMockTestItem, createMockTestItem2 } from './mock-test-item';
 import {
   ITEM_NEW,
   MAX_RECENT_ITEMS,
@@ -214,12 +215,9 @@ function bootstrap(): void {
     onOpenItem: (url: string): void => {
       void shell.openExternal(url);
     },
-    onOpenTestReview: (): void => {
-      openReviewWindow(createMockTestItem());
-    },
-    onOpenTestReview2: (): void => {
-      openReviewWindow(createMockTestItem2());
-    },
+    // TEST: 트레이 메뉴에서 목업 리뷰 테스트 시 아래 주석 해제 + TrayHandlers에 콜백 복구
+    // onOpenTestReview:  () => openReviewWindow(createMockTestItem()),
+    // onOpenTestReview2: () => openReviewWindow(createMockTestItem2()),
     onQuit: (): void => {
       app.quit();
     },
