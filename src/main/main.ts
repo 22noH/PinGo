@@ -95,25 +95,27 @@ function setTrayState(next: TrayState): void {
   broadcastTrayState(next);
 }
 
+function sendItemToWin(win: BrowserWindow, item: ReviewItemSummary | ReviewItemWithChanges): void {
+  const send = (): void => { if (!win.isDestroyed()) win.webContents.send(ITEM_NEW, item); };
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send);
+  else send();
+}
+
 function openReviewWindow(item?: ReviewItemSummary | ReviewItemWithChanges): void {
   if (!reviewWindow || reviewWindow.isDestroyed()) {
     reviewWindow = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760, true);
     reviewWindow.on('closed', () => { reviewWindow = null; });
   } else {
-    reviewWindow.show();
-    reviewWindow.focus();
+    reviewWindow.show(); reviewWindow.focus();
   }
-  if (item) {
-    const target = reviewWindow;
-    const send = (): void => {
-      if (target && !target.isDestroyed()) target.webContents.send(ITEM_NEW, item);
-    };
-    if (target.webContents.isLoading()) {
-      target.webContents.once('did-finish-load', send);
-    } else {
-      send();
-    }
-  }
+  if (item) sendItemToWin(reviewWindow, item);
+}
+
+function openDetachedWindow(item: ReviewItemSummary | ReviewItemWithChanges): void {
+  const win = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760, true);
+  win.on('closed', () => { if (reviewWindow === win) reviewWindow = null; });
+  if (!reviewWindow || reviewWindow.isDestroyed()) reviewWindow = win;
+  sendItemToWin(win, item);
 }
 
 function openSettingsWindow(): void {
@@ -230,6 +232,7 @@ function bootstrap(): void {
     store,
     getReviewWindow: (): BrowserWindow | null => reviewWindow,
     openReviewWindow,
+    openDetachedWindow,
     rebuildProviders: (): void => {
       // 설정 저장 시 providers 재구성 — 신규 연결은 silent pre-seed 먼저 실행 후 poller restart
       void (async (): Promise<void> => {

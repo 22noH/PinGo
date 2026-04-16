@@ -41,7 +41,9 @@ import {
   AI_CONFIG_SAVE,
   AI_AVAILABILITY_TEST,
   OLLAMA_MODELS_FETCH,
-  DETACH_TAB,
+  TAB_DRAG_START,
+  TAB_DRAG_END,
+  TAB_DRAG_DETACH,
 } from './shared/constants';
 
 export interface ElectronAPI {
@@ -50,7 +52,8 @@ export interface ElectronAPI {
   abortReview: () => void;
   openMrInBrowser: (webUrl: string) => void;
   toggleNotification: () => void;
-  detachTab: (item: ReviewItem) => void;
+  tabDragStart: (tabId: string, item: ReviewItem) => void;
+  tabDragEnd: () => void;
 
   // ── Renderer → Main (invoke, 응답 대기) ───────────────────
   postComment: (payload: CommentPostPayload) => Promise<CommentPostResult>;
@@ -88,6 +91,8 @@ export interface ElectronAPI {
   /** @deprecated onItemNew 사용 — ITEM_NEW와 동일 채널 구독 (v1 alias 유지) */
   onMrNew: (cb: (item: ReviewItem) => void) => () => void;
   onTrayStateChanged: (cb: (payload: TrayStateChangedPayload) => void) => () => void;
+  /** Main → Renderer: 커서가 창 밖으로 나감 → 탭 분리 */
+  onTabDragDetach: (cb: (tabId: string) => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -103,8 +108,11 @@ const api: ElectronAPI = {
   toggleNotification: (): void => {
     ipcRenderer.send(NOTIFICATION_TOGGLE);
   },
-  detachTab: (item: ReviewItem): void => {
-    ipcRenderer.send(DETACH_TAB, item);
+  tabDragStart: (tabId: string, item: ReviewItem): void => {
+    ipcRenderer.send(TAB_DRAG_START, { tabId, item });
+  },
+  tabDragEnd: (): void => {
+    ipcRenderer.send(TAB_DRAG_END);
   },
 
   postComment: (payload: CommentPostPayload): Promise<CommentPostResult> =>
@@ -187,9 +195,13 @@ const api: ElectronAPI = {
   onTrayStateChanged: (cb: (payload: TrayStateChangedPayload) => void): (() => void) => {
     const handler = (_: IpcRendererEvent, payload: TrayStateChangedPayload): void => cb(payload);
     ipcRenderer.on(TRAY_STATE_CHANGED, handler);
-    return (): void => {
-      ipcRenderer.removeListener(TRAY_STATE_CHANGED, handler);
-    };
+    return (): void => { ipcRenderer.removeListener(TRAY_STATE_CHANGED, handler); };
+  },
+
+  onTabDragDetach: (cb: (tabId: string) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, tabId: string): void => cb(tabId);
+    ipcRenderer.on(TAB_DRAG_DETACH, handler);
+    return (): void => { ipcRenderer.removeListener(TAB_DRAG_DETACH, handler); };
   },
 };
 

@@ -1,5 +1,5 @@
 // main/ipc.ts — IPC 핸들러 등록 (v2)
-import { BrowserWindow, ipcMain, shell } from 'electron';
+import { BrowserWindow, ipcMain, screen, shell } from 'electron';
 import log from 'electron-log';
 import type Store from 'electron-store';
 import type {
@@ -33,7 +33,9 @@ import {
   GIT_CONNECTIONS_LOAD,
   GIT_CONNECTIONS_SAVE,
   GIT_CONNECTION_TEST,
-  DETACH_TAB,
+  TAB_DRAG_START,
+  TAB_DRAG_END,
+  TAB_DRAG_DETACH,
   NOTIFICATION_TOGGLE,
   OLLAMA_MODELS_FETCH,
   REVIEW_ABORT,
@@ -52,6 +54,7 @@ export interface IpcDeps {
   store: Store<StoreSchema>;
   getReviewWindow: () => BrowserWindow | null;
   openReviewWindow: (item: ReviewItem) => void;
+  openDetachedWindow: (item: ReviewItem) => void;
   /** GitConfig[] 변경 시 poller의 providers 재구성 트리거 */
   rebuildProviders: (configs: GitConfig[]) => void;
   /** AIConfig 변경 시 review-runner 재구성 트리거 */
@@ -153,8 +156,30 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.onNotificationToggle();
   });
 
-  ipcMain.on(DETACH_TAB, (_e, item: ReviewItem) => {
-    deps.openReviewWindow(item);
+  // ── 탭 드래그 분리: main 프로세스에서 커서 위치 폴링 ────────
+  let dragInterval: ReturnType<typeof setInterval> | null = null;
+
+  ipcMain.on(TAB_DRAG_START, (e, payload: { tabId: string; item: ReviewItem }) => {
+    if (dragInterval) { clearInterval(dragInterval); dragInterval = null; }
+    const sourceWin = BrowserWindow.fromWebContents(e.sender);
+    if (!sourceWin) return;
+    const { tabId, item } = payload;
+    dragInterval = setInterval(() => {
+      if (sourceWin.isDestroyed()) { clearInterval(dragInterval!); dragInterval = null; return; }
+      const cur = screen.getCursorScreenPoint();
+      const b = sourceWin.getBounds();
+      const outside = cur.x < b.x - 40 || cur.x > b.x + b.width + 40
+                   || cur.y < b.y - 40 || cur.y > b.y + b.height + 40;
+      if (outside) {
+        clearInterval(dragInterval!); dragInterval = null;
+        deps.openDetachedWindow(item);
+        if (!sourceWin.isDestroyed()) sourceWin.webContents.send(TAB_DRAG_DETACH, tabId);
+      }
+    }, 50);
+  });
+
+  ipcMain.on(TAB_DRAG_END, () => {
+    if (dragInterval) { clearInterval(dragInterval); dragInterval = null; }
   });
 
   ipcMain.handle(
@@ -264,7 +289,8 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners(REVIEW_ABORT);
   ipcMain.removeAllListeners(WINDOW_OPEN_MR);
   ipcMain.removeAllListeners(NOTIFICATION_TOGGLE);
-  ipcMain.removeAllListeners(DETACH_TAB);
+  ipcMain.removeAllListeners(TAB_DRAG_START);
+  ipcMain.removeAllListeners(TAB_DRAG_END);
   if (currentRun) {
     currentRun.abort();
     currentRun = null;

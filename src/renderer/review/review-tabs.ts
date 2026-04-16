@@ -30,6 +30,11 @@ export function initTabs(
   tabBarEl = barEl;
   onActivate = cb;
   onDetach = detachCb;
+  // Main 프로세스가 커서가 창 밖으로 나갔음을 알릴 때 해당 탭 분리
+  window.electronAPI.onTabDragDetach((tabId: string) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    if (tab && tabs.length > 1) { onDetach(tab); closeById(tab.id); }
+  });
 }
 
 export function addOrActivate(item: AnyItem): ReviewTab {
@@ -118,52 +123,47 @@ export function renderBar(): void {
   }
 }
 
-/** 탭 버튼에 드래그-분리 제스처 등록 (pointer capture로 창 밖도 추적) */
+/** 탭 드래그 감지: 8px 이상 움직이면 ghost 표시 + main 프로세스에 커서 추적 위임 */
 function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
   btn.addEventListener('pointerdown', (e: PointerEvent) => {
     if (e.button !== 0) return;
-
-    // 창 밖으로 나가도 이벤트 계속 수신
     btn.setPointerCapture(e.pointerId);
 
-    const startY = e.clientY;
+    const startX = e.clientX, startY = e.clientY;
     let ghost: HTMLElement | null = null;
-    let dragging = false;
-
-    // OS 윈도우 드래그가 pointermove를 가로채지 않도록 일시 비활성화
+    let dragStarted = false;
     const strip = tabBarEl?.parentElement;
     strip?.classList.add('dragging-tab');
 
     const onMove = (ev: PointerEvent): void => {
-      const dy = ev.clientY - startY;
-      if (!dragging && dy > 35) {
-        dragging = true;
+      if (!dragStarted && (Math.abs(ev.clientX - startX) > 8 || Math.abs(ev.clientY - startY) > 8)) {
+        dragStarted = true;
         ghost = createGhost(btn, ev.clientX, ev.clientY);
         document.body.appendChild(ghost);
         document.body.style.cursor = 'grabbing';
+        // main 프로세스에 커서 추적 시작 요청
+        window.electronAPI.tabDragStart(tab.id, tab.item);
       }
-      if (dragging && ghost) {
+      if (dragStarted && ghost) {
         ghost.style.left = `${ev.clientX - 40}px`;
         ghost.style.top = `${ev.clientY - 16}px`;
       }
     };
 
-    const onUp = (ev: PointerEvent): void => {
+    const cleanup = (ev: PointerEvent): void => {
       btn.removeEventListener('pointermove', onMove);
-      btn.removeEventListener('pointerup', onUp);
+      btn.removeEventListener('pointerup', cleanup);
+      btn.removeEventListener('pointercancel', cleanup);
       btn.releasePointerCapture(ev.pointerId);
+      ghost?.remove(); ghost = null;
       document.body.style.cursor = '';
-      ghost?.remove();
       strip?.classList.remove('dragging-tab');
-      const dy = ev.clientY - startY;
-      if (dy > 35 && tabs.length > 1) {
-        onDetach(tab);
-        closeById(tab.id);
-      }
+      if (dragStarted) { dragStarted = false; window.electronAPI.tabDragEnd(); }
     };
 
     btn.addEventListener('pointermove', onMove);
-    btn.addEventListener('pointerup', onUp);
+    btn.addEventListener('pointerup', cleanup);
+    btn.addEventListener('pointercancel', cleanup);
   });
 }
 
