@@ -3,12 +3,10 @@
   <ellipse cx="16" cy="23" rx="8" ry="7" fill="#89b4fa"/>
   <!-- belly -->
   <ellipse cx="16" cy="24" rx="5" ry="5.2" fill="#e6e9ef"/>
-  <!-- left wing (drooping) -->
-  <ellipse cx="7" cy="23.5" rx="3" ry="4" fill="#74c7ec" transform="rotate(-15 7 23.5)"/>
-  <ellipse cx="7.2" cy="22.5" rx="1.1" ry="1.8" fill="#99d8f5" opacity="0.55" transform="rotate(-15 7.2 22.5)"/>
-  <!-- right wing (drooping) -->
-  <ellipse cx="25" cy="23.5" rx="3" ry="4" fill="#74c7ec" transform="rotate(15 25 23.5)"/>
-  <ellipse cx="24.8" cy="22.5" rx="1.1" ry="1.8" fill="#99d8f5" opacity="0.55" transform="rotate(15 24.8 22.5)"/>
+  <!-- left wing (drooping slightly) -->
+  <ellipse cx="9.5" cy="23" rx="1.6" ry="5.5" fill="#74c7ec" transform="rotate(-12 9.5 23)"/>
+  <!-- right wing -->
+  <ellipse cx="22.5" cy="23" rx="1.6" ry="5.5" fill="#74c7ec" transform="rotate(12 22.5 23)"/>
   <!-- head -->
   <circle cx="16" cy="12" r="9" fill="#89b4fa"/>
   <!-- face patch -->

@@ -4,16 +4,14 @@
   <!-- belly -->
   <ellipse cx="16" cy="24" rx="5" ry="5.2" fill="#c0c8d8"/>
   <!-- left wing (drooping down) -->
-  <ellipse cx="7" cy="24.5" rx="3" ry="4" fill="#5c6f8a" transform="rotate(-8 7 24.5)"/>
-  <ellipse cx="7.2" cy="23.5" rx="1.1" ry="1.8" fill="#7a8fa8" opacity="0.55" transform="rotate(-8 7.2 23.5)"/>
-  <!-- right wing (drooping down) -->
-  <ellipse cx="25" cy="24.5" rx="3" ry="4" fill="#5c6f8a" transform="rotate(8 25 24.5)"/>
-  <ellipse cx="24.8" cy="23.5" rx="1.1" ry="1.8" fill="#7a8fa8" opacity="0.55" transform="rotate(8 24.8 23.5)"/>
+  <ellipse cx="9.5" cy="23.5" rx="1.6" ry="5.5" fill="#5c6f8a" transform="rotate(-6 9.5 23.5)"/>
+  <!-- right wing -->
+  <ellipse cx="22.5" cy="23.5" rx="1.6" ry="5.5" fill="#5c6f8a" transform="rotate(6 22.5 23.5)"/>
   <!-- head -->
   <circle cx="16" cy="12" r="9" fill="#7287a8"/>
   <!-- face patch -->
   <ellipse cx="16" cy="13.5" rx="5.8" ry="4.8" fill="#c0c8d8"/>
-  <!-- eyes: sad half-closed -->
+  <!-- eyes: sad -->
   <circle cx="12.8" cy="11.5" r="2.8" fill="#8a96aa"/>
   <circle cx="19.2" cy="11.5" r="2.8" fill="#8a96aa"/>
   <!-- sad eyebrows -->
@@ -23,7 +21,7 @@
   <ellipse cx="16" cy="17" rx="2" ry="1.4" fill="#8a96aa"/>
   <!-- feet -->
   <ellipse cx="12.5" cy="29.5" rx="2.6" ry="1.1" fill="#8a96aa"/>
-  <ellipse cx="19.5" cy="29.5" rx="2.6" ry="1.1" fill="#8a96aa"/>
+  <ellipse cx="19.5" cy="29.5" rx="2.6" ry="1.1" fill="#f9a825"/>
   <!-- status: error X dot -->
   <circle cx="27" cy="5" r="5" fill="#45475a" stroke="#313244" stroke-width="0.8"/>
   <line x1="24.5" y1="2.5" x2="29.5" y2="7.5" stroke="#cdd6f4" stroke-width="1.5" stroke-linecap="round"/>

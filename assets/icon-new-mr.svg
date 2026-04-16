@@ -4,11 +4,9 @@
   <!-- belly -->
   <ellipse cx="16" cy="24" rx="5" ry="5.2" fill="#e6e9ef"/>
   <!-- left wing (raised/excited) -->
-  <ellipse cx="6.5" cy="20" rx="3" ry="4" fill="#74c7ec" transform="rotate(-50 6.5 20)"/>
-  <ellipse cx="6.8" cy="19" rx="1.1" ry="1.8" fill="#99d8f5" opacity="0.55" transform="rotate(-50 6.8 19)"/>
-  <!-- right wing (raised/excited) -->
-  <ellipse cx="25.5" cy="20" rx="3" ry="4" fill="#74c7ec" transform="rotate(50 25.5 20)"/>
-  <ellipse cx="25.2" cy="19" rx="1.1" ry="1.8" fill="#99d8f5" opacity="0.55" transform="rotate(50 25.2 19)"/>
+  <ellipse cx="9" cy="20" rx="1.6" ry="5.5" fill="#74c7ec" transform="rotate(-42 9 20)"/>
+  <!-- right wing -->
+  <ellipse cx="23" cy="20" rx="1.6" ry="5.5" fill="#74c7ec" transform="rotate(42 23 20)"/>
   <!-- head -->
   <circle cx="16" cy="12" r="9" fill="#89b4fa"/>
   <!-- face patch -->
@@ -18,7 +16,6 @@
   <circle cx="19.2" cy="11" r="3.2" fill="white"/>
   <circle cx="13.2" cy="11.5" r="1.8" fill="#11111b"/>
   <circle cx="19.6" cy="11.5" r="1.8" fill="#11111b"/>
-  <!-- eye shine (big) -->
   <circle cx="14.0" cy="10.6" r="0.7" fill="white"/>
   <circle cx="20.4" cy="10.6" r="0.7" fill="white"/>
   <!-- beak -->
