@@ -118,19 +118,23 @@ export function renderBar(): void {
   }
 }
 
-/** 탭 버튼에 드래그-분리 제스처 등록 */
+/** 탭 버튼에 드래그-분리 제스처 등록 (pointer capture로 창 밖도 추적) */
 function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
-  btn.addEventListener('mousedown', (e: MouseEvent) => {
-    if (e.button !== 0) return;  // 좌클릭만
+  btn.addEventListener('pointerdown', (e: PointerEvent) => {
+    if (e.button !== 0) return;
+
+    // 창 밖으로 나가도 이벤트 계속 수신
+    btn.setPointerCapture(e.pointerId);
+
     const startY = e.clientY;
     let ghost: HTMLElement | null = null;
     let dragging = false;
 
-    // OS 윈도우 드래그가 mousemove를 가로채지 않도록 일시 비활성화
+    // OS 윈도우 드래그가 pointermove를 가로채지 않도록 일시 비활성화
     const strip = tabBarEl?.parentElement;
     strip?.classList.add('dragging-tab');
 
-    const onMove = (ev: MouseEvent): void => {
+    const onMove = (ev: PointerEvent): void => {
       const dy = ev.clientY - startY;
       if (!dragging && dy > 35) {
         dragging = true;
@@ -144,9 +148,10 @@ function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
       }
     };
 
-    const onUp = (ev: MouseEvent): void => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+    const onUp = (ev: PointerEvent): void => {
+      btn.removeEventListener('pointermove', onMove);
+      btn.removeEventListener('pointerup', onUp);
+      btn.releasePointerCapture(ev.pointerId);
       document.body.style.cursor = '';
       ghost?.remove();
       strip?.classList.remove('dragging-tab');
@@ -157,8 +162,8 @@ function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
       }
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    btn.addEventListener('pointermove', onMove);
+    btn.addEventListener('pointerup', onUp);
   });
 }
 

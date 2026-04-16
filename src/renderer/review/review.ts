@@ -53,6 +53,8 @@ const btnRetry    = $<HTMLButtonElement>('btn-retry');
 
 // ── 상태 ─────────────────────────────────────────────────────
 let reviewState: ReviewState = 'idle';
+// 탭별 파일 변경 데이터 — innerHTML restore 시 click 핸들러 살리기 위해 보존
+const tabChanges = new Map<string, ItemChange[]>();
 
 const streamView: StreamView = {
   markdown: markdownEl, cursorEl: markdownEl, scroll: scrollEl,
@@ -86,7 +88,13 @@ function restoreTab(tab: ReviewTab): void {
   renderHeader(tab.item);
   setReviewState(tab.state);
   markdownEl.innerHTML = tab.savedHtml;
-  fileList.innerHTML = tab.fileHtml || '<li class="file-empty text-muted">리뷰가 시작되면 여기에 파일이 표시됩니다.</li>';
+  // innerHTML 복원은 click 핸들러가 날아가므로 ItemChange[]가 있으면 재렌더
+  const changes = tabChanges.get(tab.id);
+  if (changes && changes.length > 0) {
+    stream.setFileList(changes);
+  } else {
+    fileList.innerHTML = tab.fileHtml || '<li class="file-empty text-muted">리뷰가 시작되면 여기에 파일이 표시됩니다.</li>';
+  }
   fileCount.textContent = tab.fileCount;
   if (tab.errorMsg) errorMsg.textContent = tab.errorMsg;
   if (tab.state === 'done' || tab.state === 'error') {
@@ -179,6 +187,7 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
   saveCurrentTab();
   const tab = addOrActivate(it);
   if (hasChanges(it)) {
+    tabChanges.set(tab.id, it.changes);
     stream.setFileList(it.changes);
     updateActive({ fileHtml: fileList.innerHTML, fileCount: fileCount.textContent ?? '0' });
   } else if (tab.state === 'idle') {
