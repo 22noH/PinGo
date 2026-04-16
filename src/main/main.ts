@@ -121,7 +121,7 @@ function openReviewWindow(item?: ReviewItemSummary): void {
 
 function openSettingsWindow(): void {
   if (!settingsWindow || settingsWindow.isDestroyed()) {
-    settingsWindow = createAppWindow(WIN_DIRS, 'settings/index.html', 'Pingo — Settings', 640, 640);
+    settingsWindow = createAppWindow(WIN_DIRS, 'settings/index.html', 'Pingo — Settings', 640, 640, true);
     settingsWindow.on('closed', () => { settingsWindow = null; });
   } else {
     settingsWindow.show();

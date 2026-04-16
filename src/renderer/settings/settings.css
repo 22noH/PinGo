@@ -27,6 +27,11 @@ body {
   gap: var(--space-1);
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
+  /* titleBarOverlay 영역 — 창 드래그 가능 */
+  -webkit-app-region: drag;
+}
+.settings-header * {
+  -webkit-app-region: no-drag;
 }
 
 .settings-title {
