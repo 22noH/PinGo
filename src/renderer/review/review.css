@@ -94,6 +94,23 @@ body {
   color: var(--text-primary);
 }
 
+/* 드래그 분리 고스트 */
+.review-tab-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+  opacity: 0.88;
+  white-space: nowrap;
+}
+
 .review-root {
   display: grid;
   grid-template-rows: auto 1fr auto;

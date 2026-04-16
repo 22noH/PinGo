@@ -38,6 +38,8 @@ export const GIT_CONNECTION_TEST = 'git:connection:test' as const;
 export const AI_CONFIG_LOAD = 'ai:config:load' as const;
 export const AI_CONFIG_SAVE = 'ai:config:save' as const;
 export const AI_AVAILABILITY_TEST = 'ai:availability:test' as const;
+/** 탭 분리: 현재 탭을 새 윈도우로 떼어내기 */
+export const DETACH_TAB = 'review:detach-tab' as const;
 
 export const OLLAMA_MODELS_FETCH = 'ollama:models:fetch' as const;
 

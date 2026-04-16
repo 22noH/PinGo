@@ -1,28 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- body -->
-  <ellipse cx="16" cy="21" rx="8.5" ry="10" fill="#89b4fa"/>
+  <!-- body (fat & round) -->
+  <ellipse cx="16" cy="23" rx="8" ry="7" fill="#89b4fa"/>
   <!-- belly -->
-  <ellipse cx="16" cy="22.5" rx="5" ry="6.5" fill="#e6e9ef"/>
-  <!-- head -->
-  <ellipse cx="16" cy="9.5" rx="6.5" ry="7" fill="#89b4fa"/>
-  <!-- face -->
-  <ellipse cx="16" cy="10.5" rx="4" ry="3.5" fill="#e6e9ef"/>
-  <!-- eyes -->
-  <circle cx="14" cy="9" r="1.1" fill="#ffffff"/>
-  <circle cx="18" cy="9" r="1.1" fill="#ffffff"/>
-  <circle cx="14.3" cy="9" r="0.5" fill="#11111b"/>
-  <circle cx="18.3" cy="9" r="0.5" fill="#11111b"/>
+  <ellipse cx="16" cy="24" rx="5" ry="5.2" fill="#e6e9ef"/>
+  <!-- wing stubs -->
+  <ellipse cx="8" cy="23" rx="2" ry="4.5" fill="#74c7ec" transform="rotate(-20 8 23)"/>
+  <ellipse cx="24" cy="23" rx="2" ry="4.5" fill="#74c7ec" transform="rotate(20 24 23)"/>
+  <!-- head (big round) -->
+  <circle cx="16" cy="12" r="9" fill="#89b4fa"/>
+  <!-- face patch -->
+  <ellipse cx="16" cy="13.5" rx="5.8" ry="4.8" fill="#e6e9ef"/>
+  <!-- eyes (big cute) -->
+  <circle cx="12.8" cy="11.5" r="2.8" fill="white"/>
+  <circle cx="19.2" cy="11.5" r="2.8" fill="white"/>
+  <circle cx="13.3" cy="12" r="1.6" fill="#11111b"/>
+  <circle cx="19.7" cy="12" r="1.6" fill="#11111b"/>
   <!-- eye shine -->
-  <circle cx="14.6" cy="8.6" r="0.22" fill="white"/>
-  <circle cx="18.6" cy="8.6" r="0.22" fill="white"/>
+  <circle cx="13.9" cy="11.3" r="0.58" fill="white"/>
+  <circle cx="20.3" cy="11.3" r="0.58" fill="white"/>
+  <!-- blush -->
+  <circle cx="10.5" cy="15.5" r="2" fill="#f2a0be" opacity="0.5"/>
+  <circle cx="21.5" cy="15.5" r="2" fill="#f2a0be" opacity="0.5"/>
   <!-- beak -->
-  <ellipse cx="16" cy="13" rx="1.6" ry="1.1" fill="#f9a825"/>
-  <!-- wings -->
-  <ellipse cx="8.5" cy="21" rx="2.2" ry="6" fill="#74c7ec" transform="rotate(-10 8.5 21)"/>
-  <ellipse cx="23.5" cy="21" rx="2.2" ry="6" fill="#74c7ec" transform="rotate(10 23.5 21)"/>
+  <ellipse cx="16" cy="17" rx="2" ry="1.4" fill="#f9a825"/>
   <!-- feet -->
-  <ellipse cx="12.5" cy="30.5" rx="2.8" ry="1.1" fill="#f9a825"/>
-  <ellipse cx="19.5" cy="30.5" rx="2.8" ry="1.1" fill="#f9a825"/>
+  <ellipse cx="12.5" cy="29.5" rx="2.6" ry="1.1" fill="#f9a825"/>
+  <ellipse cx="19.5" cy="29.5" rx="2.6" ry="1.1" fill="#f9a825"/>
   <!-- status: green dot -->
-  <circle cx="26" cy="6" r="5" fill="#a6e3a1" stroke="#40a02b" stroke-width="0.8"/>
+  <circle cx="27" cy="5" r="5" fill="#a6e3a1" stroke="#40a02b" stroke-width="0.8"/>
 </svg>

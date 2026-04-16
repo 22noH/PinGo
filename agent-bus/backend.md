@@ -1,71 +1,117 @@
 # backend
 
-STATUS: DONE
-PHASE: 1
-REVISION: 2 반영 완료 + Reviewer 1차 Minor 3건 반영
-COMPLETED_STEPS: [1, 2, 3, 4, 5, 6, 7, 8, 9]
-LAST_UPDATED: 2026-04-15
+STATUS: CLOSED (v2 전 단계 종료 — team-lead 공식 종료 공지 수신)
+PHASE: 2 (v2 구현) — reviewer Phase 4 PASS 확정
+REVISION: 5 — 공식 SDK (`@anthropic-ai/sdk` + `openai`) 기반 전환 완료
+LAST_UPDATED: 2026-04-16
+FINAL: backend/frontend/통합 PASS · Must-fix/Should-fix 없음 · 백로그 #14/#15 비블로킹 이관
 
 ---
 
-## Architect REVISION 2 브리핑 반영 완료
+## architect REVISION 5 반영 내역
 
-### 타입 분리
-- `MergeRequestSummary` / `MergeRequestWithChanges` 적용
-- `MergeRequest` = union alias
-- `fetchOpenMrs` → `MergeRequestSummary[]`
-- `fetchMrChanges` → `MergeRequestWithChanges`
-- `MrFoundCallback` → `(MergeRequestSummary[]) => void`
-- `StoreSchema.recentMrs` → `MergeRequestSummary[]`
-- `ReviewStartPayload.mr` → `MergeRequestSummary` (main에서 changes lazy fetch)
-- `AppSettings.includeMentioned?: boolean` 추가 (v1은 읽기만, 폴링 쿼리에는 미적용)
-- `ConnectionTestResult` 추가
+### Critical 수정 (C1, C2)
+- **C1 (`onMrNew` alias)**: `src/preload.ts` 에 `onMrNew` deprecated alias 추가. ITEM_NEW와 동일 채널 구독. v1 renderer 코드 호환.
+- **C2 (delimiter `::` 통일)**: 모든 복합 ID 생성/파싱에서 `:` → `::` 변경 (team-lead 지시 + reviewer Critical). 4-part 포맷 유지:
+  `${gitConfigId}::${providerType}::${projectId}::${itemId}`
+  - `src/main/providers/git/gitlab-provider.ts` (normalize)
+  - `src/main/providers/git/github-provider.ts` (normalize)
+  - `src/main/ipc.ts` (COMMENT_POST stub)
+  - `src/main/ipc.ts` (orphan pruning 에서 `id.split('::')[0]`)
 
-### Claude CLI (stream-json)
-- `spawn('claude', ['-p', '--output-format', 'stream-json', '--verbose'])`
-- 프롬프트 stdin 주입 (`proc.stdin.write` + `end`)
-- stdout 라인버퍼 → JSON.parse → `{type:'text', text}` → onChunk
-- `{type:'error', error.message}` → onError
-- `ENOENT` 매핑: "Claude CLI가 설치되지 않았습니다. `claude` 명령이 PATH에 있는지 확인하세요."
+### Major 수정 (M1, M2, M3, M5)
+- **M1 (마이그레이션 이월 로직 제거)**: `src/main/store-migrate.ts` 별도 파일 분리. `isV1Settings` 타입 가드 + `migrateStoreV1ToV2`. `seenMrIds`/`recentMrs` 는 `[]` 로 초기화 (복합키 체계 불호환). `src/main/store.ts` 는 loose schema + clamp 만 담당.
+- **M2 (ConnectionTestResult 일원화)**: `GitConnectionTestResult` → `ConnectionTestResult` 로 통합. `GitConnectionTestResult` 는 `@deprecated` alias로 유지.
+- **M3 (factory exhaustive default)**: `createGitProvider` / `createAIProvider` 양쪽 `default` 분기에 `const _exhaustive: never = config` 추가 — 신규 variant 추가 시 컴파일 에러.
+- **M5 (orphan pruning)**: `GIT_CONNECTIONS_SAVE` 핸들러에서 삭제된 `gitConfigId` 의 `recentItems` + `seenItemIds` 자동 정리.
 
-### IPC 신규
-- `SETTINGS_TEST = 'settings:test'` 상수 추가
-- `ipc.ts` `handleSettingsTest` → `fetchCurrentUser` (`GET /api/v4/user`) 호출 → `ConnectionTestResult`
-- `preload.ts` `testConnection(): Promise<ConnectionTestResult>` 노출
+### 추가 개선 (architect §7.2 IpcDeps 패턴)
+- **`rebuildProviders` / `rebuildAIProvider` 콜백 주입**: `IpcDeps` 확장. GIT_CONNECTIONS_SAVE / AI_CONFIG_SAVE / SETTINGS_SAVE 시 각각 호출.
+- **Silent pre-seed (`src/main/preseed.ts` 신규)**: v1→v2 마이그레이션 직후 또는 신규 연결 추가 시 `fetchOpenItems()` 1회 수행 → 결과를 seenItemIds 에 선-등록 (알림/렌더러 이벤트 미발송). 대량 재알림 방지.
 
-### 보안 마스킹
-- `poller.ts` `makeClient`: axios response interceptor에서 `PRIVATE-TOKEN`/`Authorization` → `[REDACTED]` 후 electron-log 기록
-- `main.ts` 최상단: `log.hooks.push(...)` 로 `glpat-*` 패턴 로그 마스킹
-
-### 기타
-- `app.requestSingleInstanceLock()` — 실패 시 즉시 `app.quit()`
-- `app.on('second-instance', ...)` — 설정 창 포커스
-- `store.ts`: `// TODO (v2): token OS keychain 연동 (keytar)` 주석 추가
-
-## 파일 라인수 (전부 300줄 미만, any 0건, console.log 0건)
-- main.ts 257, poller.ts 239, review-runner.ts 195, ipc.ts 193, tray.ts 167, preload.ts 120, types.ts 121, notifier.ts 56, constants.ts 58, store.ts 51
-
-## Frontend 협업 주의
-- `ReviewStartPayload.mr`은 이제 `MergeRequestSummary` 타입 (changes 미포함).
-  Renderer는 리뷰 시작 시 요약만 전달하면 main에서 자동으로 `fetchMrChanges` 수행.
-- `onMrNew` 콜백은 `MergeRequestSummary` 타입.
-- 신규 API: `window.electronAPI.testConnection(): Promise<ConnectionTestResult>` — 설정창 "테스트" 버튼에 사용.
+### 스키마/타입 정정
+- `projectPath` → `repoFullName` (architect REVISION 5 §1.3 / §4 일치)
+- `CommentPostPayload` 에서 `providerType` 제거 (gitConfigId만으로 provider 조회 가능), `repoFullName` 추가
+- `CommentPostResult.id` → `commentId` (architect 명명)
+- `V1AppSettings` / `V1StoreSchema` 타입 `shared/types.ts` 에 추가 (store-migrate에서 import)
 
 ---
 
-## Reviewer 1차 리뷰 Minor 수정 (2026-04-15)
+## 파일 라인 수 (모두 300줄 미만)
+```
+main/
+  main.ts            295   ← silent pre-seed는 preseed.ts로 분리
+  ipc.ts             264
+  ipc-review.ts      101
+  poller.ts          167
+  review-runner.ts    91
+  store.ts            43   ← migrate 로직은 store-migrate.ts로 분리
+  store-migrate.ts    87
+  preseed.ts          39
+  tray.ts            191
+  notifier.ts         56
+  windows.ts          33
+providers/git/
+  git-provider.ts     36   ← exhaustive default 추가
+  gitlab-provider.ts 174
+  github-provider.ts 284
+providers/ai/
+  ai-provider.ts      48   ← exhaustive default 추가
+  claude-cli.ts      148
+  codex-cli.ts       111
+  anthropic-api.ts    92   ← @anthropic-ai/sdk 로 SSE 직접 파싱 제거
+  openai-api.ts       98   ← openai SDK 로 SSE 직접 파싱 제거
+  ollama.ts          207
+shared/
+  types.ts           282
+  constants.ts       111
+preload.ts           191   ← onMrNew alias 추가
+```
 
-### 1. store.ts — recentMrs 스키마 보강
-- `recentMrs.items: { type: 'object' }` 추가 (손상 데이터 방어)
+## 품질 체크
+- `npx tsc -p tsconfig.json --noEmit` → 에러 0건
+- `npx tsc -p tsconfig.json` (full emit) → 에러 0건
+- any 타입: 0건
+- console.log: 0건
+- 파일 300줄 제한: 100% 준수
 
-### 2. main.ts — singleInstanceLock 실패 시 early-exit
-- `app.quit()`는 비동기이므로 이후 초기화 로직이 실행될 여지가 있음
-- top-level `return`은 TS module 컨텍스트에서 불가 → `process.exit(0)`으로 즉시 차단
-- 의도(이후 코드 실행 방지)는 동일하게 달성
+## Frontend 협업 주의 (v2 최종)
+1. **타입 rename**: `MergeRequest*` → `ReviewItem*` (deprecated alias 유지)
+2. **필드 rename 확정 리스트**:
+   - `mr.iid` → `item.itemId`
+   - `mr.web_url` → `item.webUrl`
+   - `mr.source_branch` → `item.sourceBranch`
+   - `mr.target_branch` → `item.targetBranch`
+   - `mr.project_id` → `item.projectId`
+   - GitHub 아이템은 `item.repoFullName` ("owner/repo")
+3. **ReviewStartPayload**: `{ mr }` → `{ item }`
+4. **CommentPostPayload**: `gitConfigId`, `itemId`, `projectId`, `body` (+ GitHub 는 `repoFullName` 필수)
+5. **CommentPostResult**: `id` → `commentId`
+6. **`onMrNew`** 는 v1 alias로 유지 (실제 채널 ITEM_NEW). 신규 코드는 `onItemNew` 권장.
+7. **ConnectionTestResult** 단일 타입. GitLab → `userId`, GitHub → `username`. 호출측이 `config.type`으로 분기.
 
-### 3. ipc.ts handleCommentPost — 설정 가드
-- `settings.token`/`settings.gitlabUrl` 빈값이면 `{ success: false, error: '설정이 완료되지 않았습니다.' }` 조기 반환
+## 테스트 시나리오
+- v1 → v2 마이그레이션: `seenMrIds`/`recentMrs` 초기화 + silent pre-seed 로 첫 폴링 조용
+- Git 연결 추가 후 삭제: orphan pruning 으로 `recentItems`/`seenItemIds` 자동 정리
+- AI 설정 변경: `rebuildAIProvider` 콜백 — 다음 REVIEW_START 부터 신 provider 사용
 
-### v2 보류
-- second-instance 핸들러 UX 개선
-- runClaudeReview AbortController 도입
+## Reviewer 2차 리뷰 준비 완료
+architect REVISION 5 전 지시사항 반영. tsc 클린. Reviewer 검증 대기.
+
+---
+
+## REVISION 5 추가 — 공식 SDK 전환 (team-lead 지시, 2026-04-16)
+
+### 변경
+- `npm install @anthropic-ai/sdk openai` — package.json dependencies 에 `@anthropic-ai/sdk ^0.89.0`, `openai ^6.34.0` 추가.
+- `src/main/providers/ai/anthropic-api.ts` — native https SSE 파싱 완전 제거, `client.messages.stream()` 이벤트(`text`/`end`/`error`) 중계. abort 는 `stream.controller.abort()`.
+- `src/main/providers/ai/openai-api.ts` — native https/http SSE 파싱 완전 제거, `client.chat.completions.create({stream:true})` `AsyncIterable<ChatCompletionChunk>` 순회. abort 는 전달한 `AbortController.abort()`. `baseURL` 지정으로 Azure/OpenRouter/Groq 호환 유지.
+- `testAvailability` 는 SDK 의 `models.list()` / `messages.create({max_tokens:1})` 로 간소화.
+
+### 효과
+- SSE 파서/HTTP 레벨 로직 제거 → anthropic-api.ts 188 → 92 줄, openai-api.ts 188 → 98 줄.
+- SDK 가 재시도/타임아웃/에러 매핑을 제공 → 장기 유지보수성 향상.
+- `AbortController` 표준 사용 → 중단 처리 신뢰성 개선.
+
+### 타입체크
+`npx tsc -p tsconfig.json --noEmit` → 0 errors.

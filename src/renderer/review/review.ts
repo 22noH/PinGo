@@ -16,7 +16,6 @@ import { StreamController, type StreamView } from './review-stream';
 import { openDiffModal } from './review-diff-modal';
 import { initTabs, addOrActivate, getActive, updateActive, closeById, getTabCount } from './review-tabs';
 import type { ReviewTab } from './review-tabs';
-
 type AnyItem = ReviewItemSummary | ReviewItemWithChanges;
 
 const hasChanges = (it: AnyItem): it is ReviewItemWithChanges =>
@@ -62,14 +61,16 @@ const streamView: StreamView = {
 const stream = new StreamController(streamView, (change: ItemChange) => openDiffModal(change));
 
 // ── 탭 초기화 ────────────────────────────────────────────────
-initTabs(tabBar, (tab) => {
-  if (!tab.id) {
-    renderHeader(null);
-    setReviewState('idle');
-    return;
-  }
-  restoreTab(tab);
-});
+initTabs(
+  tabBar,
+  (tab) => {
+    if (!tab.id) { renderHeader(null); setReviewState('idle'); return; }
+    restoreTab(tab);
+  },
+  (tab) => {
+    if (tab.item) window.electronAPI.detachTab(tab.item);
+  },
+);
 
 function saveCurrentTab(): void {
   updateActive({

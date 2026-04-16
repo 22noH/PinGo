@@ -41,6 +41,7 @@ import {
   AI_CONFIG_SAVE,
   AI_AVAILABILITY_TEST,
   OLLAMA_MODELS_FETCH,
+  DETACH_TAB,
 } from './shared/constants';
 
 export interface ElectronAPI {
@@ -49,6 +50,7 @@ export interface ElectronAPI {
   abortReview: () => void;
   openMrInBrowser: (webUrl: string) => void;
   toggleNotification: () => void;
+  detachTab: (item: ReviewItem) => void;
 
   // ── Renderer → Main (invoke, 응답 대기) ───────────────────
   postComment: (payload: CommentPostPayload) => Promise<CommentPostResult>;
@@ -100,6 +102,9 @@ const api: ElectronAPI = {
   },
   toggleNotification: (): void => {
     ipcRenderer.send(NOTIFICATION_TOGGLE);
+  },
+  detachTab: (item: ReviewItem): void => {
+    ipcRenderer.send(DETACH_TAB, item);
   },
 
   postComment: (payload: CommentPostPayload): Promise<CommentPostResult> =>

@@ -3,7 +3,9 @@
     "allow": [
       "Bash(wc -l agent-bus/*.md)",
       "Skill(update-config)",
-      "Bash([ -d \"C:/Users/User/Desktop/Src/pingo/node_modules\" ])"
+      "Bash([ -d \"C:/Users/User/Desktop/Src/pingo/node_modules\" ])",
+      "Bash(rm -rf ~/.claude/teams/pingo)",
+      "Bash(rm -rf ~/.claude/tasks/pingo)"
     ]
   }
 }

@@ -18,6 +18,7 @@ import type {
   GitConnectionsSavePayload,
   OllamaModelsFetchPayload,
   OllamaModelsFetchResult,
+  ReviewItem,
   ReviewItemSummary,
   ReviewStartPayload,
   SettingsLoadResult,
@@ -32,6 +33,7 @@ import {
   GIT_CONNECTIONS_LOAD,
   GIT_CONNECTIONS_SAVE,
   GIT_CONNECTION_TEST,
+  DETACH_TAB,
   NOTIFICATION_TOGGLE,
   OLLAMA_MODELS_FETCH,
   REVIEW_ABORT,
@@ -49,6 +51,7 @@ import type { RunHandle } from './review-runner';
 export interface IpcDeps {
   store: Store<StoreSchema>;
   getReviewWindow: () => BrowserWindow | null;
+  openReviewWindow: (item: ReviewItem) => void;
   /** GitConfig[] 변경 시 poller의 providers 재구성 트리거 */
   rebuildProviders: (configs: GitConfig[]) => void;
   /** AIConfig 변경 시 review-runner 재구성 트리거 */
@@ -148,6 +151,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.on(NOTIFICATION_TOGGLE, () => {
     deps.onNotificationToggle();
+  });
+
+  ipcMain.on(DETACH_TAB, (_e, item: ReviewItem) => {
+    deps.openReviewWindow(item);
   });
 
   ipcMain.handle(
@@ -257,6 +264,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners(REVIEW_ABORT);
   ipcMain.removeAllListeners(WINDOW_OPEN_MR);
   ipcMain.removeAllListeners(NOTIFICATION_TOGGLE);
+  ipcMain.removeAllListeners(DETACH_TAB);
   if (currentRun) {
     currentRun.abort();
     currentRun = null;
