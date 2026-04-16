@@ -6,8 +6,10 @@ import type {
   AppSettings,
   ConnectionHealth,
   ReviewItemSummary,
+  ReviewItemWithChanges,
   TrayState,
 } from '../shared/types';
+import { createMockTestItem } from './mock-test-item';
 import {
   ITEM_NEW,
   MAX_RECENT_ITEMS,
@@ -98,7 +100,7 @@ function setTrayState(next: TrayState): void {
   broadcastTrayState(next);
 }
 
-function openReviewWindow(item?: ReviewItemSummary): void {
+function openReviewWindow(item?: ReviewItemSummary | ReviewItemWithChanges): void {
   if (!reviewWindow || reviewWindow.isDestroyed()) {
     reviewWindow = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760, true);
     reviewWindow.on('closed', () => { reviewWindow = null; });
@@ -200,7 +202,6 @@ function reconfigurePoller(
   }
 }
 
-
 function bootstrap(): void {
   const store = createStore();
   const settings = store.get('settings');
@@ -218,28 +219,7 @@ function bootstrap(): void {
       void shell.openExternal(url);
     },
     onOpenTestReview: (): void => {
-      const mockItem: ReviewItemSummary = {
-        id: 'test-cfg::gitlab::999::42',
-        gitConfigId: 'test-cfg',
-        providerType: 'gitlab',
-        providerLabel: 'GL',
-        itemId: 42,
-        title: '[테스트] feat: 펭귄 트레이 아이콘 + 다중 Git 연결 지원',
-        description: '이것은 UI 테스트용 가짜 MR입니다.',
-        author: {
-          id: 1,
-          name: '홍길동',
-          username: 'gildong',
-          avatar_url: '',
-        },
-        webUrl: 'https://gitlab.example.com/mygroup/myrepo/-/merge_requests/42',
-        sourceBranch: 'feat/penguin-tray',
-        targetBranch: 'main',
-        projectId: 999,
-        createdAt: new Date(Date.now() - 3_600_000).toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      openReviewWindow(mockItem);
+      openReviewWindow(createMockTestItem());
     },
     onQuit: (): void => {
       app.quit();
