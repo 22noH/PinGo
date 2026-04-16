@@ -74,9 +74,24 @@ npm run dev
 ### 프로덕션 빌드 (Windows NSIS 인스톨러)
 
 ```bash
-npm run dist
-# release/ 폴더에 인스톨러 생성
+npm run generate-icons && npm run dist
 ```
+
+완료되면 `release/` 폴더에 생성됩니다:
+
+```
+release/
+├── Pingo Setup 0.1.0.exe   ← 배포용 인스톨러
+└── win-unpacked/           ← 설치 없이 바로 실행 가능한 폴더
+```
+
+**인스톨러 동작**
+- 설치 경로 선택 가능
+- 바탕화면 · 시작 메뉴 바로가기 생성
+- 제어판 → 프로그램 추가/제거에 등록 (일반적인 방법으로 제거 가능)
+
+**주의사항**
+- 코드 서명 없음 — Windows Defender 또는 브라우저에서 "알 수 없는 게시자" 경고가 뜰 수 있습니다. "추가 정보 → 실행"으로 무시할 수 있습니다.
 
 ---
 
