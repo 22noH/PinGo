@@ -1,23 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- body (chubby round) -->
-  <ellipse cx="16" cy="22" rx="9" ry="7" fill="#89b4fa"/>
+  <!-- body (big round — dominates like photo) -->
+  <ellipse cx="16" cy="22" rx="10" ry="8" fill="#89b4fa"/>
   <!-- belly -->
-  <ellipse cx="16" cy="23" rx="6" ry="6" fill="#e6e9ef"/>
-  <!-- head -->
-  <circle cx="16" cy="11" r="9" fill="#89b4fa"/>
-  <!-- face patch (wide, baby penguin style) -->
-  <ellipse cx="16" cy="13" rx="6.5" ry="5.8" fill="#e6e9ef"/>
-  <!-- eyes (large dark orbs, like real baby penguin) -->
-  <circle cx="12.5" cy="11.5" r="2.8" fill="#11111b"/>
-  <circle cx="19.5" cy="11.5" r="2.8" fill="#11111b"/>
+  <ellipse cx="16" cy="23" rx="7" ry="7" fill="#e6e9ef"/>
+  <!-- head (smaller, sits on top) -->
+  <circle cx="16" cy="10" r="7" fill="#89b4fa"/>
+  <!-- face patch -->
+  <ellipse cx="16" cy="12" rx="5.5" ry="4.8" fill="#e6e9ef"/>
+  <!-- eyes (large dark orbs) -->
+  <circle cx="13" cy="10" r="2.2" fill="#11111b"/>
+  <circle cx="19" cy="10" r="2.2" fill="#11111b"/>
   <!-- eye shine -->
-  <circle cx="13.5" cy="10.5" r="1" fill="white"/>
-  <circle cx="20.5" cy="10.5" r="1" fill="white"/>
+  <circle cx="13.8" cy="9.2" r="0.8" fill="white"/>
+  <circle cx="19.8" cy="9.2" r="0.8" fill="white"/>
   <!-- beak (small) -->
-  <ellipse cx="16" cy="17" rx="1.8" ry="1.2" fill="#f9a825"/>
+  <ellipse cx="16" cy="15.5" rx="1.5" ry="1" fill="#f9a825"/>
   <!-- feet -->
-  <ellipse cx="12.5" cy="30" rx="2.6" ry="1.1" fill="#f9a825"/>
-  <ellipse cx="19.5" cy="30" rx="2.6" ry="1.1" fill="#f9a825"/>
+  <ellipse cx="12.5" cy="30.5" rx="2.5" ry="1" fill="#f9a825"/>
+  <ellipse cx="19.5" cy="30.5" rx="2.5" ry="1" fill="#f9a825"/>
   <!-- status: green dot -->
   <circle cx="27" cy="5" r="5" fill="#a6e3a1" stroke="#40a02b" stroke-width="0.8"/>
 </svg>

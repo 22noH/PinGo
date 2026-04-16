@@ -1,24 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <!-- body -->
-  <ellipse cx="16" cy="22" rx="9" ry="7" fill="#89b4fa"/>
+  <ellipse cx="16" cy="22" rx="10" ry="8" fill="#89b4fa"/>
   <!-- belly -->
-  <ellipse cx="16" cy="23" rx="6" ry="6" fill="#e6e9ef"/>
+  <ellipse cx="16" cy="23" rx="7" ry="7" fill="#e6e9ef"/>
   <!-- head -->
-  <circle cx="16" cy="11" r="9" fill="#89b4fa"/>
+  <circle cx="16" cy="10" r="7" fill="#89b4fa"/>
   <!-- face patch -->
-  <ellipse cx="16" cy="13" rx="6.5" ry="5.8" fill="#e6e9ef"/>
-  <!-- eyes: wide/excited (white sclera + dark pupils) -->
-  <circle cx="12.5" cy="11" r="3.2" fill="white"/>
-  <circle cx="19.5" cy="11" r="3.2" fill="white"/>
-  <circle cx="12.5" cy="11.5" r="2" fill="#11111b"/>
-  <circle cx="19.5" cy="11.5" r="2" fill="#11111b"/>
-  <circle cx="13.5" cy="10.5" r="0.8" fill="white"/>
-  <circle cx="20.5" cy="10.5" r="0.8" fill="white"/>
+  <ellipse cx="16" cy="12" rx="5.5" ry="4.8" fill="#e6e9ef"/>
+  <!-- eyes: wide/excited -->
+  <circle cx="13" cy="9.8" r="2.6" fill="white"/>
+  <circle cx="19" cy="9.8" r="2.6" fill="white"/>
+  <circle cx="13" cy="10.2" r="1.6" fill="#11111b"/>
+  <circle cx="19" cy="10.2" r="1.6" fill="#11111b"/>
+  <circle cx="13.8" cy="9.4" r="0.6" fill="white"/>
+  <circle cx="19.8" cy="9.4" r="0.6" fill="white"/>
   <!-- beak -->
-  <ellipse cx="16" cy="17" rx="1.8" ry="1.2" fill="#f9a825"/>
+  <ellipse cx="16" cy="15.5" rx="1.5" ry="1" fill="#f9a825"/>
   <!-- feet -->
-  <ellipse cx="12.5" cy="30" rx="2.6" ry="1.1" fill="#f9a825"/>
-  <ellipse cx="19.5" cy="30" rx="2.6" ry="1.1" fill="#f9a825"/>
+  <ellipse cx="12.5" cy="30.5" rx="2.5" ry="1" fill="#f9a825"/>
+  <ellipse cx="19.5" cy="30.5" rx="2.5" ry="1" fill="#f9a825"/>
   <!-- status: yellow ! dot -->
   <circle cx="27" cy="5" r="5" fill="#f9e2af" stroke="#df8e1d" stroke-width="0.8"/>
   <rect x="25.8" y="2.8" width="1.4" height="3.8" rx="0.7" fill="#1a1b2e"/>
