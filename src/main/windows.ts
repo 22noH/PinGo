@@ -5,6 +5,7 @@ import * as path from 'path';
 export interface WindowDirs {
   preloadPath: string;
   rendererDir: string;
+  assetsDir: string;
 }
 
 export function createAppWindow(
@@ -23,6 +24,7 @@ export function createAppWindow(
     show: false,
     maximizable,
     backgroundColor: '#1a1b2e',
+    icon: path.join(dirs.assetsDir, 'icon-active.png'),
     ...(overlayTitleBar
       ? {
           titleBarStyle: 'hidden',

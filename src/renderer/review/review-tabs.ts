@@ -126,6 +126,10 @@ function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
     let ghost: HTMLElement | null = null;
     let dragging = false;
 
+    // OS 윈도우 드래그가 mousemove를 가로채지 않도록 일시 비활성화
+    const strip = tabBarEl?.parentElement;
+    strip?.classList.add('dragging-tab');
+
     const onMove = (ev: MouseEvent): void => {
       const dy = ev.clientY - startY;
       if (!dragging && dy > 35) {
@@ -145,6 +149,7 @@ function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
       document.removeEventListener('mouseup', onUp);
       document.body.style.cursor = '';
       ghost?.remove();
+      strip?.classList.remove('dragging-tab');
       const dy = ev.clientY - startY;
       if (dy > 35 && tabs.length > 1) {
         onDetach(tab);

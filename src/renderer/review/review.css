@@ -94,6 +94,12 @@ body {
   color: var(--text-primary);
 }
 
+/* 탭 드래그 중 — OS 윈도우드래그 비활성화 (mousemove 이벤트 통과) */
+.review-tabstrip-wrap.dragging-tab,
+.review-tabstrip-wrap.dragging-tab .review-tabstrip {
+  -webkit-app-region: no-drag;
+}
+
 /* 드래그 분리 고스트 */
 .review-tab-ghost {
   position: fixed;

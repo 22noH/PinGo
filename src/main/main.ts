@@ -56,6 +56,7 @@ const WIN_DIRS: WindowDirs = {
   rendererDir: app.isPackaged
     ? path.join(process.resourcesPath, 'dist', 'renderer')
     : path.join(__dirname, '..', 'renderer'),
+  assetsDir: ASSETS_DIR,
 };
 
 let tray: TrayController | null = null;
