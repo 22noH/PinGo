@@ -3,14 +3,17 @@
   <ellipse cx="16" cy="23" rx="8" ry="7" fill="#89b4fa"/>
   <!-- belly -->
   <ellipse cx="16" cy="24" rx="5" ry="5.2" fill="#e6e9ef"/>
-  <!-- wing stubs -->
-  <ellipse cx="8" cy="23" rx="2" ry="4.5" fill="#74c7ec" transform="rotate(-20 8 23)"/>
-  <ellipse cx="24" cy="23" rx="2" ry="4.5" fill="#74c7ec" transform="rotate(20 24 23)"/>
+  <!-- left wing (drooping) -->
+  <ellipse cx="7" cy="23.5" rx="3" ry="4" fill="#74c7ec" transform="rotate(-15 7 23.5)"/>
+  <ellipse cx="7.2" cy="22.5" rx="1.1" ry="1.8" fill="#99d8f5" opacity="0.55" transform="rotate(-15 7.2 22.5)"/>
+  <!-- right wing (drooping) -->
+  <ellipse cx="25" cy="23.5" rx="3" ry="4" fill="#74c7ec" transform="rotate(15 25 23.5)"/>
+  <ellipse cx="24.8" cy="22.5" rx="1.1" ry="1.8" fill="#99d8f5" opacity="0.55" transform="rotate(15 24.8 22.5)"/>
   <!-- head -->
   <circle cx="16" cy="12" r="9" fill="#89b4fa"/>
   <!-- face patch -->
   <ellipse cx="16" cy="13.5" rx="5.8" ry="4.8" fill="#e6e9ef"/>
-  <!-- eyes: X (muted/sad) -->
+  <!-- eyes: X -->
   <line x1="11" y1="9.5" x2="14.5" y2="13" stroke="#f38ba8" stroke-width="1.4" stroke-linecap="round"/>
   <line x1="14.5" y1="9.5" x2="11" y2="13" stroke="#f38ba8" stroke-width="1.4" stroke-linecap="round"/>
   <line x1="17.5" y1="9.5" x2="21" y2="13" stroke="#f38ba8" stroke-width="1.4" stroke-linecap="round"/>

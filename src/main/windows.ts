@@ -14,12 +14,14 @@ export function createAppWindow(
   width: number,
   height: number,
   overlayTitleBar = false,
+  maximizable = true,
 ): BrowserWindow {
   const win = new BrowserWindow({
     width,
     height,
     title,
     show: false,
+    maximizable,
     backgroundColor: '#1a1b2e',
     ...(overlayTitleBar
       ? {

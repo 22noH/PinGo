@@ -23,6 +23,7 @@ interface TrayHandlers {
   onOpenSettings: () => void;
   onOpenItem: (webUrl: string) => void;
   onOpenTestReview: () => void;
+  onOpenTestReview2: () => void;
   onQuit: () => void;
 }
 
@@ -146,7 +147,8 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
 
     items.push({ type: 'separator' });
     items.push({ label: '⚙️  설정', click: (): void => handlers.onOpenSettings() });
-    items.push({ label: '🧪  테스트 리뷰', click: (): void => handlers.onOpenTestReview() });
+    items.push({ label: '🧪  테스트 리뷰 #1 (GitLab)', click: (): void => handlers.onOpenTestReview() });
+    items.push({ label: '🧪  테스트 리뷰 #2 (GitHub)', click: (): void => handlers.onOpenTestReview2() });
     items.push({ type: 'separator' });
     items.push({ label: '종료', click: (): void => handlers.onQuit() });
 

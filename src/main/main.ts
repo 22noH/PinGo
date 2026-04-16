@@ -9,7 +9,7 @@ import type {
   ReviewItemWithChanges,
   TrayState,
 } from '../shared/types';
-import { createMockTestItem } from './mock-test-item';
+import { createMockTestItem, createMockTestItem2 } from './mock-test-item';
 import {
   ITEM_NEW,
   MAX_RECENT_ITEMS,
@@ -24,16 +24,10 @@ import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { createGitProvider, GitProvider } from './providers/git/git-provider';
 import { createAppWindow, WindowDirs } from './windows';
 import { silentPreSeed } from './preseed';
-
 // ── 중복 실행 방지 ──────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-  process.exit(0);
-}
-
+if (!gotLock) { app.quit(); process.exit(0); }
 log.transports.file.level = 'info';
-
 // electron-log hook: 토큰/인증 헤더 패턴 로그에서 마스킹
 const TOKEN_PATTERN = /glpat-[A-Za-z0-9_-]{20,}/g;
 const GITHUB_PATTERN = /gh[ps]_[A-Za-z0-9]{30,}/g;
@@ -123,7 +117,7 @@ function openReviewWindow(item?: ReviewItemSummary | ReviewItemWithChanges): voi
 
 function openSettingsWindow(): void {
   if (!settingsWindow || settingsWindow.isDestroyed()) {
-    settingsWindow = createAppWindow(WIN_DIRS, 'settings/index.html', 'Pingo — Settings', 640, 640, true);
+    settingsWindow = createAppWindow(WIN_DIRS, 'settings/index.html', 'Pingo — Settings', 640, 640, true, false);
     settingsWindow.on('closed', () => { settingsWindow = null; });
   } else {
     settingsWindow.show();
@@ -206,7 +200,6 @@ function bootstrap(): void {
   const store = createStore();
   const settings = store.get('settings');
   const seenIds = new Set<string>(store.get('seenItemIds'));
-
   tray = createTray(ASSETS_DIR, {
     onToggleNotification: (): void => {
       const s = store.get('settings');
@@ -220,6 +213,9 @@ function bootstrap(): void {
     },
     onOpenTestReview: (): void => {
       openReviewWindow(createMockTestItem());
+    },
+    onOpenTestReview2: (): void => {
+      openReviewWindow(createMockTestItem2());
     },
     onQuit: (): void => {
       app.quit();
@@ -256,7 +252,7 @@ function bootstrap(): void {
     },
   });
 
-  // 최초 기동: 마이그레이션 직후 seenItemIds 가 [] 이면 silent pre-seed 수행 → poller 시작
+  // seenItemIds 가 [] 이면 silent pre-seed 후 poller 시작
   void (async (): Promise<void> => {
     const preexistingSeen = store.get('seenItemIds').length;
     if (preexistingSeen === 0 && settings.gitConnections.length > 0) {
