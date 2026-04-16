@@ -1,7 +1,7 @@
-// review-diff-modal.ts — 파일 diff 모달 다이얼로그
-import type { MRChange } from '../../shared/types';
+// review-diff-modal.ts — 파일 diff 모달 다이얼로그 (v2 ItemChange)
+import type { ItemChange } from '../../shared/types';
 
-export function openDiffModal(change: MRChange): void {
+export function openDiffModal(change: ItemChange): void {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   backdrop.tabIndex = -1;

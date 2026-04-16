@@ -1,183 +1,44 @@
-// main/poller.ts — GitLab MR 폴러
-import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
+// main/poller.ts — Multi-provider 병렬 폴러 (v2)
+import axios from 'axios';
 import log from 'electron-log';
 import type {
-  AppSettings,
-  MergeRequestSummary,
-  MergeRequestWithChanges,
+  ConnectionHealth,
+  ReviewItemSummary,
 } from '../shared/types';
+import { PROVIDER_DISPLAY_NAME } from '../shared/constants';
+import type { GitProvider } from './providers/git/git-provider';
 
-export type MrFoundCallback = (newMrs: MergeRequestSummary[]) => void;
+export type ItemsFoundCallback = (newItems: ReviewItemSummary[]) => void;
 export type PollErrorCallback = (error: Error) => void;
-export type PollTickCallback = (at: Date) => void;
+export type PollTickCallback = (at: Date, health: ConnectionHealth[]) => void;
 
 export interface PollerController {
   start(): void;
   stop(): void;
-  restart(settings: AppSettings): void;
+  /** providers 교체 + interval 갱신 */
+  replace(providers: GitProvider[], pollIntervalMs: number): void;
 }
 
-// ── GitLab API 원시 응답 타입 (internal) ────────────────────
-interface GitLabMRListItem {
-  id: number;
-  iid: number;
-  title: string;
-  description: string | null;
-  author: {
-    id: number;
-    name: string;
-    username: string;
-    avatar_url: string;
-  };
-  web_url: string;
-  source_branch: string;
-  target_branch: string;
-  reviewers?: Array<{ id: number }>;
-  project_id: number;
-  diff_refs: {
-    base_sha: string;
-    head_sha: string;
-    start_sha: string;
-  } | null;
-  created_at: string;
-  updated_at: string;
+export interface PollerCallbacks {
+  onFound: ItemsFoundCallback;
+  onError: PollErrorCallback;
+  onTick?: PollTickCallback;
 }
 
-interface GitLabMRChanges extends GitLabMRListItem {
-  changes: Array<{
-    old_path: string;
-    new_path: string;
-    diff: string;
-    new_file: boolean;
-    deleted_file: boolean;
-    renamed_file: boolean;
-  }>;
-}
-
-interface GitLabUser {
-  id: number;
-  username: string;
-  name: string;
-}
-
-function normalize(raw: GitLabMRListItem): MergeRequestSummary {
-  return {
-    id: raw.id,
-    iid: raw.iid,
-    title: raw.title,
-    description: raw.description ?? '',
-    author: raw.author,
-    web_url: raw.web_url,
-    source_branch: raw.source_branch,
-    target_branch: raw.target_branch,
-    reviewer_ids: (raw.reviewers ?? []).map((r) => r.id),
-    project_id: raw.project_id,
-    diff_refs: raw.diff_refs ?? { base_sha: '', head_sha: '', start_sha: '' },
-    created_at: raw.created_at,
-    updated_at: raw.updated_at,
-  };
-}
-
-function maskHeaders(headers: AxiosRequestHeaders | undefined): Record<string, unknown> {
-  if (!headers) return {};
-  const safe: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(headers)) {
-    if (key === 'PRIVATE-TOKEN' || key === 'Authorization') {
-      safe[key] = '[REDACTED]';
-    } else {
-      safe[key] = value;
-    }
-  }
-  return safe;
-}
-
-export function makeClient(gitlabUrl: string, token: string): AxiosInstance {
-  const client = axios.create({
-    baseURL: `${gitlabUrl.replace(/\/$/, '')}/api/v4`,
-    headers: { 'PRIVATE-TOKEN': token },
-    timeout: 15_000,
-  });
-  client.interceptors.response.use(
-    (res) => res,
-    (err: unknown) => {
-      if (axios.isAxiosError(err)) {
-        const status = err.response?.status;
-        const safe = maskHeaders(err.config?.headers as AxiosRequestHeaders | undefined);
-        log.warn(`axios error status=${status ?? 'n/a'} url=${err.config?.url ?? ''}`, safe);
-      }
-      return Promise.reject(err);
-    },
-  );
-  return client;
-}
-
-export async function fetchOpenMrs(
-  gitlabUrl: string,
-  token: string,
-  userId: number,
-  signal?: AbortSignal,
-): Promise<MergeRequestSummary[]> {
-  const client = makeClient(gitlabUrl, token);
-  const res = await client.get<GitLabMRListItem[]>('/merge_requests', {
-    params: {
-      scope: 'all',
-      state: 'opened',
-      reviewer_id: userId,
-      order_by: 'updated_at',
-      sort: 'desc',
-      per_page: 20,
-    },
-    signal,
-  });
-  return res.data.map(normalize);
-}
-
-export async function fetchMrChanges(
-  gitlabUrl: string,
-  token: string,
-  projectId: number,
-  iid: number,
-): Promise<MergeRequestWithChanges> {
-  const client = makeClient(gitlabUrl, token);
-  const res = await client.get<GitLabMRChanges>(
-    `/projects/${projectId}/merge_requests/${iid}/changes`,
-  );
-  const base = normalize(res.data);
-  return { ...base, changes: res.data.changes };
-}
-
-/** GET /user — 연결/토큰 검증용 */
-export async function fetchCurrentUser(
-  gitlabUrl: string,
-  token: string,
-): Promise<GitLabUser> {
-  const client = makeClient(gitlabUrl, token);
-  const res = await client.get<GitLabUser>('/user');
-  return res.data;
-}
-
-export function classifyError(err: unknown): Error {
-  if (axios.isAxiosError(err)) {
-    const ax = err as AxiosError;
-    const status = ax.response?.status;
-    if (status === 401) return new Error('GitLab 인증 실패 (401): 토큰을 확인하세요');
-    if (status === 403) return new Error('GitLab 권한 없음 (403)');
-    if (status === 429) return new Error('GitLab rate limit (429)');
-    if (status && status >= 500) return new Error(`GitLab 서버 오류 (${status})`);
-    return new Error(`GitLab 요청 실패: ${ax.message}`);
-  }
-  if (err instanceof Error) return err;
-  return new Error('알 수 없는 오류');
+function connectionLabel(provider: GitProvider): string {
+  const cfg = provider.config;
+  if (cfg.label) return cfg.label;
+  return PROVIDER_DISPLAY_NAME[cfg.type];
 }
 
 export function createPoller(
-  initialSettings: AppSettings,
-  seenIds: Set<number>,
-  onFound: MrFoundCallback,
-  onError: PollErrorCallback,
-  onTick?: PollTickCallback,
+  initialProviders: GitProvider[],
+  initialPollIntervalMs: number,
+  seenIds: Set<string>,
+  { onFound, onError, onTick }: PollerCallbacks,
 ): PollerController {
-  let settings: AppSettings = { ...initialSettings };
+  let providers: GitProvider[] = [...initialProviders];
+  let pollIntervalMs = initialPollIntervalMs;
   let timer: NodeJS.Timeout | null = null;
   let inFlight = false;
   let abortController: AbortController | null = null;
@@ -195,36 +56,69 @@ export function createPoller(
       log.debug('poller: previous tick still running, skipping');
       return;
     }
-    if (!settings.gitlabUrl || !settings.token || !settings.userId) {
-      log.debug('poller: settings incomplete, skipping tick');
+    if (providers.length === 0) {
+      log.debug('poller: no providers configured, skipping tick');
       return;
     }
+
     inFlight = true;
     abortController = new AbortController();
     const mySignal = abortController.signal;
-    try {
-      const list = await fetchOpenMrs(
-        settings.gitlabUrl,
-        settings.token,
-        settings.userId,
-        mySignal,
-      );
-      const now = new Date();
-      onTick?.(now);
 
-      const newMrs = list.filter((m) => !seenIds.has(m.id));
-      if (newMrs.length > 0) {
-        log.info(`poller: ${newMrs.length} new MR(s) detected`);
-        onFound(newMrs);
-      } else {
-        log.debug(`poller: no new MRs (total open: ${list.length})`);
+    try {
+      const results = await Promise.allSettled(
+        providers.map((p) => p.fetchOpenItems(mySignal)),
+      );
+
+      const now = new Date();
+      const health: ConnectionHealth[] = [];
+      const collected: ReviewItemSummary[] = [];
+      let anyError = false;
+
+      for (let i = 0; i < providers.length; i += 1) {
+        const provider = providers[i];
+        const result = results[i];
+        const base: ConnectionHealth = {
+          gitConfigId: provider.config.id,
+          providerType: provider.config.type,
+          label: connectionLabel(provider),
+          ok: false,
+          lastCheckedAt: now.toISOString(),
+        };
+        if (result.status === 'fulfilled') {
+          collected.push(...result.value);
+          health.push({ ...base, ok: true });
+        } else {
+          const err = result.reason;
+          if (mySignal.aborted || (axios.isCancel && axios.isCancel(err))) {
+            // 요청 취소는 에러로 보지 않음
+            health.push({ ...base, ok: true });
+          } else {
+            anyError = true;
+            const msg = err instanceof Error ? err.message : String(err);
+            health.push({ ...base, ok: false, error: msg });
+            log.warn(
+              `poller[${provider.config.type}:${provider.config.id.slice(0, 8)}]: ${msg}`,
+            );
+            onError(err instanceof Error ? err : new Error(msg));
+          }
+        }
       }
-    } catch (err) {
-      // abort된 요청은 stop/restart가 이미 기록했으므로 에러 콜백 스킵
-      if (mySignal.aborted || axios.isCancel(err)) {
-        log.debug('poller: tick aborted');
+
+      onTick?.(now, health);
+
+      // 중복 제거 (id 기준)
+      const uniq = new Map<string, ReviewItemSummary>();
+      for (const item of collected) uniq.set(item.id, item);
+
+      const newItems = Array.from(uniq.values()).filter((m) => !seenIds.has(m.id));
+      if (newItems.length > 0) {
+        log.info(`poller: ${newItems.length} new item(s) detected`);
+        onFound(newItems);
       } else {
-        onError(classifyError(err));
+        log.debug(
+          `poller: no new items (total open: ${uniq.size}, providers: ${providers.length}, anyErr: ${anyError})`,
+        );
       }
     } finally {
       inFlight = false;
@@ -238,12 +132,14 @@ export function createPoller(
     if (timer) clearInterval(timer);
     timer = setInterval((): void => {
       void tick();
-    }, settings.pollIntervalMs);
+    }, pollIntervalMs);
   };
 
   return {
     start: (): void => {
-      log.info(`poller: start (interval=${settings.pollIntervalMs}ms)`);
+      log.info(
+        `poller: start (providers=${providers.length}, interval=${pollIntervalMs}ms)`,
+      );
       void tick();
       scheduleNext();
     },
@@ -255,13 +151,17 @@ export function createPoller(
         timer = null;
       }
     },
-    restart: (next: AppSettings): void => {
-      log.info('poller: restart with new settings');
-      abortInFlight('restart');
-      settings = { ...next };
+    replace: (nextProviders: GitProvider[], nextInterval: number): void => {
+      log.info(
+        `poller: replace (providers=${nextProviders.length}, interval=${nextInterval}ms)`,
+      );
+      abortInFlight('replace');
+      providers = [...nextProviders];
+      pollIntervalMs = nextInterval;
       if (timer) clearInterval(timer);
       void tick();
       scheduleNext();
     },
   };
 }
+

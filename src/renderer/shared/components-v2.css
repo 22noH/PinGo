@@ -1,0 +1,208 @@
+/* ============================================================
+   pingo — v2 공통 컴포넌트 (탭, 연결 카드, provider 배지, 인라인 폼, 셀렉트)
+   components.css의 연장. settings 윈도우(v2) 전용으로 사용.
+   ============================================================ */
+
+/* ── 탭 (설정 윈도우 Git 연결 / AI) ───────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 var(--space-1);
+}
+.tab-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+  user-select: none;
+}
+.tab-item:hover:not(.is-active) { color: var(--text-primary); }
+.tab-item.is-active {
+  color: var(--accent-blue);
+  border-bottom-color: var(--accent-blue);
+}
+.tab-item:focus-visible {
+  outline: none;
+  color: var(--accent-blue);
+  box-shadow: inset 0 -2px 0 var(--accent-blue);
+}
+.tab-panel { display: none; }
+.tab-panel.is-active {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: var(--space-1);
+}
+
+/* ── 연결 카드 (Git 연결 목록 항목) ───────────────────────── */
+.connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.connection-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+.connection-card:hover { border-color: var(--border-default); }
+.connection-card.is-error { border-color: rgba(243, 139, 168, 0.40); }
+.connection-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.connection-card-title {
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.connection-card-title .truncate { min-width: 0; }
+.connection-card-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.connection-card-actions {
+  display: inline-flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.connection-empty {
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+/* Provider 배지 ([GL] / [GH]) — review 윈도우 헤더에서도 재사용 */
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+.provider-badge.is-gitlab {
+  color: #fca326;
+  background: rgba(252, 163, 38, 0.12);
+  border-color: rgba(252, 163, 38, 0.30);
+}
+.provider-badge.is-github {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-default);
+}
+
+/* ── 인라인 편집 폼 (슬라이드 다운) ────────────────────────── */
+.inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  animation: slide-down var(--dur-med) var(--ease);
+  transform-origin: top;
+}
+.inline-form-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.inline-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+/* ── 셀렉트 (드롭다운) ─────────────────────────────────────── */
+.select {
+  display: block;
+  width: 100%;
+  padding: 9px 36px 9px 12px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  color: var(--text-primary);
+  background-color: var(--bg-base);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236c7086' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+.select:hover { border-color: var(--border-strong); }
+.select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(137, 180, 250, 0.18);
+  background-color: var(--bg-surface);
+}
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

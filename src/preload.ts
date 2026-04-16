@@ -1,4 +1,4 @@
-// preload.ts — contextBridge 기반 보안 IPC 게이트웨이
+// preload.ts — contextBridge 기반 보안 IPC 게이트웨이 (v2)
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import type {
   ReviewStartPayload,
@@ -8,9 +8,18 @@ import type {
   SettingsLoadResult,
   ReviewChunkPayload,
   ReviewErrorPayload,
-  MergeRequest,
+  ReviewItem,
   TrayStateChangedPayload,
+  GitConnectionsLoadResult,
+  GitConnectionsSavePayload,
+  GitConnectionTestPayload,
   ConnectionTestResult,
+  AIConfigLoadResult,
+  AIConfigSavePayload,
+  AIAvailabilityTestPayload,
+  AIAvailabilityTestResult,
+  OllamaModelsFetchPayload,
+  OllamaModelsFetchResult,
 } from './shared/types';
 import {
   REVIEW_START,
@@ -21,11 +30,17 @@ import {
   COMMENT_POST,
   SETTINGS_SAVE,
   SETTINGS_LOAD,
-  SETTINGS_TEST,
   WINDOW_OPEN_MR,
   NOTIFICATION_TOGGLE,
-  MR_NEW,
+  ITEM_NEW,
   TRAY_STATE_CHANGED,
+  GIT_CONNECTIONS_LOAD,
+  GIT_CONNECTIONS_SAVE,
+  GIT_CONNECTION_TEST,
+  AI_CONFIG_LOAD,
+  AI_CONFIG_SAVE,
+  AI_AVAILABILITY_TEST,
+  OLLAMA_MODELS_FETCH,
 } from './shared/constants';
 
 export interface ElectronAPI {
@@ -39,20 +54,37 @@ export interface ElectronAPI {
   postComment: (payload: CommentPostPayload) => Promise<CommentPostResult>;
   saveSettings: (payload: SettingsSavePayload) => Promise<void>;
   loadSettings: () => Promise<SettingsLoadResult>;
-  /** GitLab GET /api/v4/user 호출하여 토큰/URL 유효성 확인 */
-  testConnection: () => Promise<ConnectionTestResult>;
+
+  // v2 신규 — Git 연결 관리
+  loadGitConnections: () => Promise<GitConnectionsLoadResult>;
+  saveGitConnections: (payload: GitConnectionsSavePayload) => Promise<void>;
+  testGitConnection: (
+    payload: GitConnectionTestPayload,
+  ) => Promise<ConnectionTestResult>;
+
+  // v2 신규 — AI 설정 관리
+  loadAIConfig: () => Promise<AIConfigLoadResult>;
+  saveAIConfig: (payload: AIConfigSavePayload) => Promise<void>;
+  testAIAvailability: (
+    payload: AIAvailabilityTestPayload,
+  ) => Promise<AIAvailabilityTestResult>;
+  fetchOllamaModels: (
+    payload: OllamaModelsFetchPayload,
+  ) => Promise<OllamaModelsFetchResult>;
 
   // ── Main → Renderer (이벤트 구독, 언서브스크라이브 함수 반환) ─
   onReviewChunk: (cb: (payload: ReviewChunkPayload) => void) => () => void;
   onReviewDone: (cb: () => void) => () => void;
   onReviewError: (cb: (payload: ReviewErrorPayload) => void) => () => void;
   /**
-   * MR_NEW는 두 번 수신될 수 있음:
-   *  1) 리뷰 윈도우 오픈 시 — MergeRequestSummary (changes 없음, 헤더 초기화용)
-   *  2) REVIEW_START 처리 중 fetchMrChanges 완료 후 — MergeRequestWithChanges (파일 목록 갱신용)
-   * renderer는 `'changes' in mr`로 분기하여 처리.
+   * ITEM_NEW는 두 번 수신될 수 있음:
+   *  1) 리뷰 윈도우 오픈 시 — ReviewItemSummary (changes 없음, 헤더 초기화용)
+   *  2) REVIEW_START 처리 중 fetchChanges 완료 후 — ReviewItemWithChanges (파일 목록 갱신용)
+   * renderer는 `'changes' in item`로 분기하여 처리.
    */
-  onMrNew: (cb: (mr: MergeRequest) => void) => () => void;
+  onItemNew: (cb: (item: ReviewItem) => void) => () => void;
+  /** @deprecated onItemNew 사용 — ITEM_NEW와 동일 채널 구독 (v1 alias 유지) */
+  onMrNew: (cb: (item: ReviewItem) => void) => () => void;
   onTrayStateChanged: (cb: (payload: TrayStateChangedPayload) => void) => () => void;
 }
 
@@ -79,8 +111,32 @@ const api: ElectronAPI = {
   loadSettings: (): Promise<SettingsLoadResult> =>
     ipcRenderer.invoke(SETTINGS_LOAD) as Promise<SettingsLoadResult>,
 
-  testConnection: (): Promise<ConnectionTestResult> =>
-    ipcRenderer.invoke(SETTINGS_TEST) as Promise<ConnectionTestResult>,
+  loadGitConnections: (): Promise<GitConnectionsLoadResult> =>
+    ipcRenderer.invoke(GIT_CONNECTIONS_LOAD) as Promise<GitConnectionsLoadResult>,
+
+  saveGitConnections: (payload: GitConnectionsSavePayload): Promise<void> =>
+    ipcRenderer.invoke(GIT_CONNECTIONS_SAVE, payload) as Promise<void>,
+
+  testGitConnection: (
+    payload: GitConnectionTestPayload,
+  ): Promise<ConnectionTestResult> =>
+    ipcRenderer.invoke(GIT_CONNECTION_TEST, payload) as Promise<ConnectionTestResult>,
+
+  loadAIConfig: (): Promise<AIConfigLoadResult> =>
+    ipcRenderer.invoke(AI_CONFIG_LOAD) as Promise<AIConfigLoadResult>,
+
+  saveAIConfig: (payload: AIConfigSavePayload): Promise<void> =>
+    ipcRenderer.invoke(AI_CONFIG_SAVE, payload) as Promise<void>,
+
+  testAIAvailability: (
+    payload: AIAvailabilityTestPayload,
+  ): Promise<AIAvailabilityTestResult> =>
+    ipcRenderer.invoke(AI_AVAILABILITY_TEST, payload) as Promise<AIAvailabilityTestResult>,
+
+  fetchOllamaModels: (
+    payload: OllamaModelsFetchPayload,
+  ): Promise<OllamaModelsFetchResult> =>
+    ipcRenderer.invoke(OLLAMA_MODELS_FETCH, payload) as Promise<OllamaModelsFetchResult>,
 
   onReviewChunk: (cb: (payload: ReviewChunkPayload) => void): (() => void) => {
     const handler = (_: IpcRendererEvent, payload: ReviewChunkPayload): void => cb(payload);
@@ -106,11 +162,20 @@ const api: ElectronAPI = {
     };
   },
 
-  onMrNew: (cb: (mr: MergeRequest) => void): (() => void) => {
-    const handler = (_: IpcRendererEvent, mr: MergeRequest): void => cb(mr);
-    ipcRenderer.on(MR_NEW, handler);
+  onItemNew: (cb: (item: ReviewItem) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, item: ReviewItem): void => cb(item);
+    ipcRenderer.on(ITEM_NEW, handler);
     return (): void => {
-      ipcRenderer.removeListener(MR_NEW, handler);
+      ipcRenderer.removeListener(ITEM_NEW, handler);
+    };
+  },
+
+  // v1 alias — ITEM_NEW와 동일 채널 구독 (기존 renderer 코드 호환용)
+  onMrNew: (cb: (item: ReviewItem) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, item: ReviewItem): void => cb(item);
+    ipcRenderer.on(ITEM_NEW, handler);
+    return (): void => {
+      ipcRenderer.removeListener(ITEM_NEW, handler);
     };
   },
 

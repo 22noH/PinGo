@@ -1,25 +1,26 @@
-// review.ts — Pingo 리뷰 윈도우 엔트리포인트
-// MR 헤더 렌더링, 상태 머신, IPC 구독, 버튼 핸들링, diff 모달
-// window.electronAPI 타입은 renderer/global.d.ts에서 선언
+// review.ts — Pingo 리뷰 윈도우 엔트리포인트 (v2 ReviewItem 기반)
+// MR/PR 공통 헤더, 상태 머신, IPC 구독, 버튼 핸들링, diff 모달
+// window.electronAPI 타입은 renderer/global.d.ts 에서 선언
 import type {
-  MergeRequestSummary,
-  MergeRequestWithChanges,
-  MRChange,
+  ReviewItemSummary,
+  ReviewItemWithChanges,
+  ItemChange,
   ReviewState,
   ReviewChunkPayload,
   ReviewErrorPayload,
   CommentPostResult,
 } from '../../shared/types';
+import { PROVIDER_SHORT_LABEL, PROVIDER_DISPLAY_NAME } from '../../shared/constants';
 import { initMarked } from './review-markdown';
 import { StreamController, type StreamView } from './review-stream';
 import { openDiffModal } from './review-diff-modal';
 
-type AnyMr = MergeRequestSummary | MergeRequestWithChanges;
+type AnyItem = ReviewItemSummary | ReviewItemWithChanges;
 
-const hasChanges = (mr: AnyMr): mr is MergeRequestWithChanges =>
-  'changes' in mr && Array.isArray((mr as MergeRequestWithChanges).changes);
+const hasChanges = (it: AnyItem): it is ReviewItemWithChanges =>
+  'changes' in it && Array.isArray((it as ReviewItemWithChanges).changes);
 
-// ── DOM 참조 ─────────────────────────────────────────────────
+// ── DOM ──────────────────────────────────────────────────────
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`#${id} not found`);
@@ -49,32 +50,44 @@ const btnComment  = $<HTMLButtonElement>('btn-comment');
 const btnRetry    = $<HTMLButtonElement>('btn-retry');
 
 // ── 상태 ─────────────────────────────────────────────────────
-let currentMr: AnyMr | null = null;
+let currentItem: AnyItem | null = null;
 let reviewState: ReviewState = 'idle';
 
 const streamView: StreamView = {
   markdown: markdownEl, cursorEl: markdownEl, scroll: scrollEl,
   fileList, fileCount, scrollBtn,
 };
-const stream = new StreamController(streamView, (change: MRChange) => openDiffModal(change));
+const stream = new StreamController(streamView, (change: ItemChange) => openDiffModal(change));
 
-// ── MR 헤더 렌더링 ───────────────────────────────────────────
-function renderMrHeader(mr: AnyMr): void {
-  currentMr = mr;
-  mrIid.textContent    = `MR #${mr.iid}`;
-  mrTitle.textContent  = mr.title;
-  mrBranch.textContent = `${mr.source_branch} → ${mr.target_branch}`;
-  mrAuthor.textContent = `@${mr.author.username}`;
-  mrLink.href          = mr.web_url;
-  document.title = `MR #${mr.iid} — ${mr.title}`;
+// ── 헤더 렌더링 ─────────────────────────────────────────────
+function renderHeader(item: AnyItem): void {
+  currentItem = item;
+
+  // provider 배지 + 아이디 표시 (MR #N / PR #N)
+  mrIid.innerHTML = '';
+  const badge = document.createElement('span');
+  badge.className = `provider-badge is-${item.providerType}`;
+  badge.textContent = PROVIDER_SHORT_LABEL[item.providerType] || item.providerLabel || '';
+  badge.style.marginRight = '6px';
+  mrIid.appendChild(badge);
+  const label = document.createElement('span');
+  label.textContent = `${item.providerType === 'github' ? 'PR' : 'MR'} #${item.itemId}`;
+  mrIid.appendChild(label);
+
+  mrTitle.textContent  = item.title;
+  mrBranch.textContent = `${item.sourceBranch} → ${item.targetBranch}`;
+  mrAuthor.textContent = `@${item.author.username}`;
+  mrLink.href          = item.webUrl;
+  mrLink.textContent   = `${PROVIDER_DISPLAY_NAME[item.providerType]}에서 열기`;
+  document.title = `${item.providerType === 'github' ? 'PR' : 'MR'} #${item.itemId} — ${item.title}`;
 }
 
 mrLink.addEventListener('click', (e) => {
   e.preventDefault();
-  if (currentMr) window.electronAPI.openMrInBrowser(currentMr.web_url);
+  if (currentItem) window.electronAPI.openMrInBrowser(currentItem.webUrl);
 });
 
-// ── 상태 머신 ────────────────────────────────────────────────
+// ── 상태 머신 ───────────────────────────────────────────────
 function setReviewState(next: ReviewState): void {
   reviewState = next;
   stateBadge.className = 'badge ' + stateClass(next);
@@ -94,7 +107,8 @@ function setReviewState(next: ReviewState): void {
     idleBox.hidden = true;
     errorBox.hidden = true;
     markdownEl.hidden = false;
-    markdownEl.innerHTML = '<div class="row text-secondary"><span class="spinner"></span><span>변경 파일을 불러오는 중…</span></div>';
+    markdownEl.innerHTML =
+      '<div class="row text-secondary"><span class="spinner"></span><span>변경 파일을 불러오는 중…</span></div>';
   } else if (next === 'streaming') {
     errorBox.hidden = true;
     idleBox.hidden = true;
@@ -118,11 +132,13 @@ function stateClass(s: ReviewState): string {
 }
 
 // ── IPC 구독 ─────────────────────────────────────────────────
-// onMrNew는 2회 발생 — (1) 윈도우 오픈 시 Summary, (2) 리뷰 시작 후 WithChanges
-window.electronAPI.onMrNew((mr: AnyMr): void => {
-  renderMrHeader(mr);
-  if (hasChanges(mr)) {
-    stream.setFileList(mr.changes);
+// ITEM_NEW(=onItemNew)는 2회 발생:
+//   (1) 리뷰 윈도우 오픈 시 — ReviewItemSummary (헤더 초기화)
+//   (2) REVIEW_START 처리 후 fetchChanges 완료 — ReviewItemWithChanges (파일 목록 갱신)
+window.electronAPI.onItemNew((it: AnyItem): void => {
+  renderHeader(it);
+  if (hasChanges(it)) {
+    stream.setFileList(it.changes);
   } else if (reviewState === 'idle') {
     btnReview.disabled = false;
   }
@@ -149,21 +165,20 @@ window.electronAPI.onReviewError(({ message }: ReviewErrorPayload): void => {
   setReviewState('error');
 });
 
-// ── 버튼 핸들러 ──────────────────────────────────────────────
+// ── 버튼 핸들러 ─────────────────────────────────────────────
 function startReview(): void {
-  if (!currentMr) return;
+  if (!currentItem) return;
   stream.reset();
   stream.renderWaitingForChanges();
   setReviewState('loading');
-  // summary 형태로 전달 — main이 changes fetch 후 onMrNew(WithChanges) 재전송
-  const summary: MergeRequestSummary = hasChanges(currentMr)
-    ? stripChanges(currentMr)
-    : currentMr;
-  window.electronAPI.startReview({ mr: summary });
+  const summary: ReviewItemSummary = hasChanges(currentItem)
+    ? stripChanges(currentItem)
+    : currentItem;
+  window.electronAPI.startReview({ item: summary });
 }
 
-function stripChanges(mr: MergeRequestWithChanges): MergeRequestSummary {
-  const { changes: _changes, ...rest } = mr;
+function stripChanges(it: ReviewItemWithChanges): ReviewItemSummary {
+  const { changes: _changes, ...rest } = it;
   void _changes;
   return rest;
 }
@@ -179,7 +194,7 @@ btnAbort.addEventListener('click', () => {
 btnComment.addEventListener('click', () => { void postComment(); });
 
 async function postComment(): Promise<void> {
-  if (!currentMr) return;
+  if (!currentItem) return;
   const body = stream.getFullText().trim();
   if (!body) return;
   const original = btnComment.innerHTML;
@@ -187,8 +202,10 @@ async function postComment(): Promise<void> {
   btnComment.innerHTML = '<span class="spinner"></span><span>등록 중…</span>';
   try {
     const result: CommentPostResult = await window.electronAPI.postComment({
-      projectId: currentMr.project_id,
-      iid: currentMr.iid,
+      gitConfigId: currentItem.gitConfigId,
+      projectId: currentItem.projectId,
+      repoFullName: currentItem.repoFullName,
+      itemId: currentItem.itemId,
       body,
     });
     if (result.success) {
@@ -212,7 +229,7 @@ async function postComment(): Promise<void> {
   }
 }
 
-// ── 키보드 단축키 ────────────────────────────────────────────
+// ── 키보드 단축키 ───────────────────────────────────────────
 document.addEventListener('keydown', (e: KeyboardEvent): void => {
   if (e.key === 'Escape' && (reviewState === 'streaming' || reviewState === 'loading')) {
     if (!document.querySelector('.modal-backdrop')) btnAbort.click();
@@ -222,7 +239,7 @@ document.addEventListener('keydown', (e: KeyboardEvent): void => {
   }
 });
 
-// ── 부팅 ─────────────────────────────────────────────────────
+// ── 부팅 ────────────────────────────────────────────────────
 function bootstrap(): void {
   if (!initMarked()) setTimeout(bootstrap, 50);
 }

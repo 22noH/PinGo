@@ -1,22 +1,28 @@
-// main/tray.ts — 트레이 아이콘 + 상태 머신 + 컨텍스트 메뉴
+// main/tray.ts — 트레이 아이콘 + 상태 머신 + 컨텍스트 메뉴 (v2)
 import { Menu, MenuItemConstructorOptions, nativeImage, Tray } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
-import type { MergeRequestSummary, TrayState } from '../shared/types';
+import type {
+  ConnectionHealth,
+  ReviewItemSummary,
+  TrayState,
+} from '../shared/types';
 import { NEW_MR_BLINK_INTERVAL_MS } from '../shared/constants';
 
 export interface TrayController {
   getState(): TrayState;
   setState(state: TrayState): void;
-  updateRecentMrs(mrs: MergeRequestSummary[]): void;
+  updateRecentItems(items: ReviewItemSummary[]): void;
   updateLastChecked(at: Date): void;
+  updateHealth(health: ConnectionHealth[]): void;
   destroy(): void;
 }
 
 interface TrayHandlers {
   onToggleNotification: () => void;
   onOpenSettings: () => void;
-  onOpenMr: (webUrl: string) => void;
+  onOpenItem: (webUrl: string) => void;
+  onOpenTestReview: () => void;
   onQuit: () => void;
 }
 
@@ -37,25 +43,37 @@ function formatSince(from: Date | null): string {
   return `${hr}시간 전`;
 }
 
-function statusLabel(state: TrayState, lastCheckedAt: Date | null): string {
+function healthSummary(health: ConnectionHealth[]): string {
+  if (health.length === 0) return '연결 없음';
+  return health
+    .map((h) => `${h.label} ${h.ok ? '✓' : '✗'}`)
+    .join(' · ');
+}
+
+function statusLabel(
+  state: TrayState,
+  lastCheckedAt: Date | null,
+  health: ConnectionHealth[],
+): string {
   const since = formatSince(lastCheckedAt);
+  const healthStr = healthSummary(health);
   switch (state) {
     case 'ACTIVE':
-      return `🟢 폴링 중 — 마지막 확인: ${since}`;
+      return `🟢 폴링 중 — ${healthStr} (${since})`;
     case 'MUTED':
-      return `🔕 알림 꺼짐 — 마지막 확인: ${since}`;
+      return `🔕 알림 꺼짐 — ${healthStr} (${since})`;
     case 'NEW_MR':
-      return `🟡 새 MR 있음 — 마지막 확인: ${since}`;
+      return `🟡 새 MR/PR 있음 — ${healthStr} (${since})`;
     case 'ERROR':
-      return `⚫ GitLab 연결 실패 — 마지막 확인: ${since}`;
+      return `⚫ 연결 실패 — ${healthStr} (${since})`;
   }
 }
 
 export function createTray(iconDir: string, handlers: TrayHandlers): TrayController {
   let state: TrayState = 'ACTIVE';
-  let recentMrs: MergeRequestSummary[] = [];
-  // Summary 전용 — 트레이 메뉴는 changes 불필요
+  let recentItems: ReviewItemSummary[] = [];
   let lastCheckedAt: Date | null = null;
+  let health: ConnectionHealth[] = [];
   let blinkTimer: NodeJS.Timeout | null = null;
   let blinkToggle = false;
 
@@ -97,7 +115,10 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
 
   const buildMenu = (): Menu => {
     const items: MenuItemConstructorOptions[] = [];
-    items.push({ label: statusLabel(state, lastCheckedAt), enabled: false });
+    items.push({
+      label: statusLabel(state, lastCheckedAt, health),
+      enabled: false,
+    });
     items.push({ type: 'separator' });
 
     const toggleLabel = state === 'MUTED' ? '🔕 알림 꺼짐' : '🔔 알림 켜짐';
@@ -109,22 +130,23 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
     });
 
     items.push({ type: 'separator' });
-    items.push({ label: '최근 MR', enabled: false });
+    items.push({ label: '최근 MR/PR', enabled: false });
 
-    if (recentMrs.length === 0) {
+    if (recentItems.length === 0) {
       items.push({ label: '  (없음)', enabled: false });
     } else {
-      for (const mr of recentMrs) {
-        const label = `  MR #${mr.iid}  ${mr.source_branch}`;
+      for (const item of recentItems) {
+        const label = `  [${item.providerLabel}] #${item.itemId}  ${item.sourceBranch || item.title}`;
         items.push({
           label,
-          click: (): void => handlers.onOpenMr(mr.web_url),
+          click: (): void => handlers.onOpenItem(item.webUrl),
         });
       }
     }
 
     items.push({ type: 'separator' });
     items.push({ label: '⚙️  설정', click: (): void => handlers.onOpenSettings() });
+    items.push({ label: '🧪  테스트 리뷰', click: (): void => handlers.onOpenTestReview() });
     items.push({ type: 'separator' });
     items.push({ label: '종료', click: (): void => handlers.onQuit() });
 
@@ -151,12 +173,16 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
       applyIcon();
       refreshMenu();
     },
-    updateRecentMrs: (mrs: MergeRequestSummary[]): void => {
-      recentMrs = mrs.slice(0, 5);
+    updateRecentItems: (items: ReviewItemSummary[]): void => {
+      recentItems = items.slice(0, 5);
       refreshMenu();
     },
     updateLastChecked: (at: Date): void => {
       lastCheckedAt = at;
+      refreshMenu();
+    },
+    updateHealth: (next: ConnectionHealth[]): void => {
+      health = next;
       refreshMenu();
     },
     destroy: (): void => {

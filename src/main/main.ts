@@ -1,24 +1,32 @@
-// main/main.ts — Electron 앱 엔트리포인트
-import { app, BrowserWindow, shell } from 'electron';
+// main/main.ts — Electron 앱 엔트리포인트 (v2)
+import { app, BrowserWindow, Menu, shell } from 'electron';
 import * as path from 'path';
 import log, { LogMessage } from 'electron-log';
 import type {
   AppSettings,
-  MergeRequestSummary,
+  ConnectionHealth,
+  ReviewItemSummary,
   TrayState,
 } from '../shared/types';
-import { MAX_RECENT_MRS, MAX_SEEN_MR_IDS, MR_NEW, TRAY_STATE_CHANGED } from '../shared/constants';
+import {
+  ITEM_NEW,
+  MAX_RECENT_ITEMS,
+  MAX_SEEN_ITEM_IDS,
+  TRAY_STATE_CHANGED,
+} from '../shared/constants';
 import { createStore } from './store';
 import { createTray, TrayController } from './tray';
 import { createPoller, PollerController } from './poller';
 import { sendMrNotification } from './notifier';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
+import { createGitProvider, GitProvider } from './providers/git/git-provider';
+import { createAppWindow, WindowDirs } from './windows';
+import { silentPreSeed } from './preseed';
 
-// ── 중복 실행 방지 (트레이 앱이므로 단일 인스턴스 보장) ────
+// ── 중복 실행 방지 ──────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
-  // 이후 초기화 로직이 실행되지 않도록 즉시 종료 (quit은 비동기이므로 가드 필요)
   process.exit(0);
 }
 
@@ -26,13 +34,15 @@ log.transports.file.level = 'info';
 
 // electron-log hook: 토큰/인증 헤더 패턴 로그에서 마스킹
 const TOKEN_PATTERN = /glpat-[A-Za-z0-9_-]{20,}/g;
-const HEADER_PATTERN = /(PRIVATE-TOKEN|Authorization):\s*\S+/g;
+const GITHUB_PATTERN = /gh[ps]_[A-Za-z0-9]{30,}/g;
+const HEADER_PATTERN = /(PRIVATE-TOKEN|Authorization|x-api-key):\s*\S+/gi;
 log.hooks.push((message: LogMessage): LogMessage => {
   message.data = message.data.map((item: unknown): unknown => {
     if (typeof item === 'string') {
       return item
         .replace(HEADER_PATTERN, '$1: [REDACTED]')
-        .replace(TOKEN_PATTERN, 'glpat-[REDACTED]');
+        .replace(TOKEN_PATTERN, 'glpat-[REDACTED]')
+        .replace(GITHUB_PATTERN, 'gh?_[REDACTED]');
     }
     return item;
   });
@@ -45,26 +55,41 @@ const ASSETS_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'assets')
   : path.join(__dirname, '..', '..', 'assets');
 
-const PRELOAD_PATH = path.join(__dirname, '..', 'preload.js');
-const RENDERER_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, 'src', 'renderer')
-  : path.join(__dirname, '..', '..', 'src', 'renderer');
+const WIN_DIRS: WindowDirs = {
+  preloadPath: path.join(__dirname, '..', 'preload.js'),
+  rendererDir: app.isPackaged
+    ? path.join(process.resourcesPath, 'dist', 'renderer')
+    : path.join(__dirname, '..', 'renderer'),
+};
 
 let tray: TrayController | null = null;
 let poller: PollerController | null = null;
 let reviewWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let lastCheckedAt: Date | null = null;
+let lastHealth: ConnectionHealth[] = [];
+
+function buildProviders(settings: AppSettings): GitProvider[] {
+  return settings.gitConnections
+    .map((cfg): GitProvider | null => {
+      try {
+        return createGitProvider(cfg);
+      } catch (err) {
+        log.error(`main: failed to build provider ${cfg.type}::${cfg.id}: ${String(err)}`);
+        return null;
+      }
+    })
+    .filter((p): p is GitProvider => p !== null);
+}
 
 function broadcastTrayState(state: TrayState): void {
   const payload = {
     state,
     lastCheckedAt: (lastCheckedAt ?? new Date()).toISOString(),
+    connections: lastHealth,
   };
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send(TRAY_STATE_CHANGED, payload);
-    }
+    if (!win.isDestroyed()) win.webContents.send(TRAY_STATE_CHANGED, payload);
   }
 }
 
@@ -73,39 +98,18 @@ function setTrayState(next: TrayState): void {
   broadcastTrayState(next);
 }
 
-function createBrowserWindow(htmlFile: string, title: string, width: number, height: number): BrowserWindow {
-  const win = new BrowserWindow({
-    width,
-    height,
-    title,
-    show: false,
-    backgroundColor: '#1e1e2e',
-    webPreferences: {
-      preload: PRELOAD_PATH,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  void win.loadFile(path.join(RENDERER_DIR, htmlFile));
-  win.once('ready-to-show', () => win.show());
-  return win;
-}
-
-function openReviewWindow(mr?: MergeRequestSummary): void {
+function openReviewWindow(item?: ReviewItemSummary): void {
   if (!reviewWindow || reviewWindow.isDestroyed()) {
-    reviewWindow = createBrowserWindow('review/index.html', 'Pingo — AI Review', 1000, 760);
-    reviewWindow.on('closed', () => {
-      reviewWindow = null;
-    });
+    reviewWindow = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760);
+    reviewWindow.on('closed', () => { reviewWindow = null; });
   } else {
     reviewWindow.show();
     reviewWindow.focus();
   }
-  if (mr) {
+  if (item) {
     const target = reviewWindow;
     const send = (): void => {
-      if (target && !target.isDestroyed()) target.webContents.send(MR_NEW, mr);
+      if (target && !target.isDestroyed()) target.webContents.send(ITEM_NEW, item);
     };
     if (target.webContents.isLoading()) {
       target.webContents.once('did-finish-load', send);
@@ -117,54 +121,90 @@ function openReviewWindow(mr?: MergeRequestSummary): void {
 
 function openSettingsWindow(): void {
   if (!settingsWindow || settingsWindow.isDestroyed()) {
-    settingsWindow = createBrowserWindow('settings/index.html', 'Pingo — Settings', 560, 520);
-    settingsWindow.on('closed', () => {
-      settingsWindow = null;
-    });
+    settingsWindow = createAppWindow(WIN_DIRS, 'settings/index.html', 'Pingo — Settings', 640, 640);
+    settingsWindow.on('closed', () => { settingsWindow = null; });
   } else {
     settingsWindow.show();
     settingsWindow.focus();
   }
 }
 
-function rememberNewMrs(store: ReturnType<typeof createStore>, newMrs: MergeRequestSummary[]): void {
-  const seen = new Set<number>(store.get('seenMrIds'));
-  for (const mr of newMrs) seen.add(mr.id);
-  store.set('seenMrIds', Array.from(seen).slice(-MAX_SEEN_MR_IDS));
+function rememberNewItems(
+  store: ReturnType<typeof createStore>,
+  newItems: ReviewItemSummary[],
+): void {
+  const seen = new Set<string>(store.get('seenItemIds'));
+  for (const item of newItems) seen.add(item.id);
+  store.set('seenItemIds', Array.from(seen).slice(-MAX_SEEN_ITEM_IDS));
 
-  const prior = store.get('recentMrs');
-  const merged = [...newMrs, ...prior].slice(0, MAX_RECENT_MRS);
-  store.set('recentMrs', merged);
-  tray?.updateRecentMrs(merged);
+  const prior = store.get('recentItems');
+  const merged = [...newItems, ...prior].slice(0, MAX_RECENT_ITEMS);
+  store.set('recentItems', merged);
+  tray?.updateRecentItems(merged);
 }
 
-function handleNewMrs(
+function handleNewItems(
   store: ReturnType<typeof createStore>,
-  newMrs: MergeRequestSummary[],
+  newItems: ReviewItemSummary[],
 ): void {
-  rememberNewMrs(store, newMrs);
+  rememberNewItems(store, newItems);
   const { notificationEnabled } = store.get('settings');
-
-  if (notificationEnabled) {
-    for (const mr of newMrs) {
-      sendMrNotification(mr, (action, clicked) => {
-        if (action === 'open') {
-          void shell.openExternal(clicked.web_url);
-        } else {
-          openReviewWindow(clicked as MergeRequestSummary);
-        }
-      });
-    }
-    setTrayState('NEW_MR');
-  } else {
+  if (!notificationEnabled) {
     log.info('main: notifications muted, skipping toast');
+    return;
+  }
+  for (const item of newItems) {
+    sendMrNotification(item, (action, clicked) => {
+      if (action === 'open') {
+        void shell.openExternal(clicked.webUrl);
+      } else {
+        openReviewWindow(clicked);
+      }
+    });
+  }
+  setTrayState('NEW_MR');
+}
+
+function reconfigurePoller(
+  store: ReturnType<typeof createStore>,
+  settings: AppSettings,
+  seenIds: Set<string>,
+): void {
+  const providers = buildProviders(settings);
+  if (!poller) {
+    poller = createPoller(providers, settings.pollIntervalMs, seenIds, {
+      onFound: (newItems: ReviewItemSummary[]): void => {
+        for (const item of newItems) seenIds.add(item.id);
+        handleNewItems(store, newItems);
+      },
+      onError: (err: Error): void => {
+        log.error(`main: poll error — ${err.message}`);
+      },
+      onTick: (at: Date, health: ConnectionHealth[]): void => {
+        lastCheckedAt = at;
+        lastHealth = health;
+        tray?.updateLastChecked(at);
+        tray?.updateHealth(health);
+        const anyFailure = health.some((h) => !h.ok);
+        const s = store.get('settings');
+        if (anyFailure) {
+          setTrayState('ERROR');
+        } else if (tray?.getState() === 'ERROR') {
+          setTrayState(s.notificationEnabled ? 'ACTIVE' : 'MUTED');
+        }
+      },
+    });
+    if (providers.length > 0) poller.start();
+  } else {
+    poller.replace(providers, settings.pollIntervalMs);
   }
 }
+
 
 function bootstrap(): void {
   const store = createStore();
   const settings = store.get('settings');
-  const seenIds = new Set<number>(store.get('seenMrIds'));
+  const seenIds = new Set<string>(store.get('seenItemIds'));
 
   tray = createTray(ASSETS_DIR, {
     onToggleNotification: (): void => {
@@ -174,44 +214,57 @@ function bootstrap(): void {
       setTrayState(next.notificationEnabled ? 'ACTIVE' : 'MUTED');
     },
     onOpenSettings: openSettingsWindow,
-    onOpenMr: (url: string): void => {
+    onOpenItem: (url: string): void => {
       void shell.openExternal(url);
+    },
+    onOpenTestReview: (): void => {
+      const mockItem: ReviewItemSummary = {
+        id: 'test-cfg::gitlab::999::42',
+        gitConfigId: 'test-cfg',
+        providerType: 'gitlab',
+        providerLabel: 'GL',
+        itemId: 42,
+        title: '[테스트] feat: 펭귄 트레이 아이콘 + 다중 Git 연결 지원',
+        description: '이것은 UI 테스트용 가짜 MR입니다.',
+        author: {
+          id: 1,
+          name: '홍길동',
+          username: 'gildong',
+          avatar_url: '',
+        },
+        webUrl: 'https://gitlab.example.com/mygroup/myrepo/-/merge_requests/42',
+        sourceBranch: 'feat/penguin-tray',
+        targetBranch: 'main',
+        projectId: 999,
+        createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      openReviewWindow(mockItem);
     },
     onQuit: (): void => {
       app.quit();
     },
   });
 
-  tray.updateRecentMrs(store.get('recentMrs'));
+  tray.updateRecentItems(store.get('recentItems'));
   setTrayState(settings.notificationEnabled ? 'ACTIVE' : 'MUTED');
-
-  poller = createPoller(
-    settings,
-    seenIds,
-    (newMrs: MergeRequestSummary[]): void => {
-      for (const m of newMrs) seenIds.add(m.id);
-      handleNewMrs(store, newMrs);
-    },
-    (err: Error): void => {
-      log.error(`main: poll error — ${err.message}`);
-      setTrayState('ERROR');
-    },
-    (at: Date): void => {
-      lastCheckedAt = at;
-      tray?.updateLastChecked(at);
-      // ERROR 상태였다가 성공했으면 복원
-      if (tray?.getState() === 'ERROR') {
-        const s = store.get('settings');
-        setTrayState(s.notificationEnabled ? 'ACTIVE' : 'MUTED');
-      }
-    },
-  );
 
   registerIpcHandlers({
     store,
     getReviewWindow: (): BrowserWindow | null => reviewWindow,
+    rebuildProviders: (): void => {
+      // 설정 저장 시 providers 재구성 — 신규 연결은 silent pre-seed 먼저 실행 후 poller restart
+      void (async (): Promise<void> => {
+        await silentPreSeed(store, seenIds, buildProviders(store.get('settings')));
+        reconfigurePoller(store, store.get('settings'), seenIds);
+      })();
+    },
+    rebuildAIProvider: (): void => {
+      // AIProvider는 review-runner가 REVIEW_START 시 매번 createAIProvider() 재호출하므로
+      // 별도 재구성 불필요. 로그만 남김.
+      log.info('main: AI provider config updated (re-created on next review start)');
+    },
     onSettingsSaved: (next: AppSettings): void => {
-      poller?.restart(next);
       setTrayState(next.notificationEnabled ? 'ACTIVE' : 'MUTED');
     },
     onNotificationToggle: (): void => {
@@ -222,17 +275,22 @@ function bootstrap(): void {
     },
   });
 
-  // 토큰 미설정 → 설정 창 자동 오픈
-  if (!settings.token || !settings.gitlabUrl || !settings.userId) {
-    log.info('main: settings incomplete, opening settings window');
+  // 최초 기동: 마이그레이션 직후 seenItemIds 가 [] 이면 silent pre-seed 수행 → poller 시작
+  void (async (): Promise<void> => {
+    const preexistingSeen = store.get('seenItemIds').length;
+    if (preexistingSeen === 0 && settings.gitConnections.length > 0) {
+      await silentPreSeed(store, seenIds, buildProviders(settings));
+    }
+    reconfigurePoller(store, store.get('settings'), seenIds);
+  })();
+
+  if (settings.gitConnections.length === 0) {
+    log.info('main: no git connections, opening settings window');
     openSettingsWindow();
-  } else {
-    poller.start();
   }
 }
 
 app.on('second-instance', () => {
-  // 두 번째 인스턴스 실행 시: 설정 창이 열려 있으면 포커스, 아니면 트레이 사용자 안내
   const existing = settingsWindow;
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
@@ -246,12 +304,12 @@ app.whenReady().then(() => {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.pingo.app');
   }
+  Menu.setApplicationMenu(null);
   bootstrap();
 });
 
-// 트레이 앱이므로 모든 윈도우 닫혀도 종료 금지
 app.on('window-all-closed', () => {
-  // no-op
+  // 트레이 앱이므로 모든 윈도우가 닫혀도 종료 금지
 });
 
 app.on('before-quit', () => {

@@ -1,7 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <circle cx="8" cy="8" r="7.5" fill="#a6e3a1" stroke="#40a02b" stroke-width="0.5"/>
-  <path d="M8 3.5 L11.5 10 L8 8.5 L4.5 10 Z" fill="#1e1e2e"/>
-  <path d="M4.5 10 L3 7 L4.5 10 Z" fill="#40a02b"/>
-  <path d="M11.5 10 L13 7 L11.5 10 Z" fill="#40a02b"/>
-  <path d="M4.5 10 L8 12.5 L11.5 10 L8 8.5 Z" fill="#1e1e2e" opacity="0.7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- body -->
+  <ellipse cx="16" cy="21" rx="8.5" ry="10" fill="#1a1b2e"/>
+  <!-- belly -->
+  <ellipse cx="16" cy="22.5" rx="5" ry="6.5" fill="#e0e0f0"/>
+  <!-- head -->
+  <ellipse cx="16" cy="9.5" rx="6.5" ry="7" fill="#1a1b2e"/>
+  <!-- face -->
+  <ellipse cx="16" cy="10.5" rx="4" ry="3.5" fill="#e0e0f0"/>
+  <!-- eyes -->
+  <circle cx="14" cy="9" r="1.1" fill="#ffffff"/>
+  <circle cx="18" cy="9" r="1.1" fill="#ffffff"/>
+  <circle cx="14.3" cy="9" r="0.5" fill="#111"/>
+  <circle cx="18.3" cy="9" r="0.5" fill="#111"/>
+  <!-- beak -->
+  <ellipse cx="16" cy="13" rx="1.6" ry="1.1" fill="#f9e2af"/>
+  <!-- wings -->
+  <ellipse cx="8.5" cy="21" rx="2.2" ry="6" fill="#1a1b2e" transform="rotate(-10 8.5 21)"/>
+  <ellipse cx="23.5" cy="21" rx="2.2" ry="6" fill="#1a1b2e" transform="rotate(10 23.5 21)"/>
+  <!-- feet -->
+  <ellipse cx="12.5" cy="30.5" rx="2.8" ry="1.1" fill="#f9e2af"/>
+  <ellipse cx="19.5" cy="30.5" rx="2.8" ry="1.1" fill="#f9e2af"/>
+  <!-- status: green dot -->
+  <circle cx="26" cy="6" r="5" fill="#a6e3a1" stroke="#40a02b" stroke-width="0.8"/>
 </svg>

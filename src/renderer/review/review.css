@@ -27,7 +27,7 @@ body {
   border-bottom: 1px solid var(--border-subtle);
 }
 
-#mr-iid        { font-weight: 600; font-size: var(--fs-md); }
+#mr-iid        { font-weight: 600; font-size: var(--fs-md); display: inline-flex; align-items: center; }
 #mr-title      { font-size: var(--fs-lg); font-weight: 600; color: var(--text-primary); min-width: 0; }
 #mr-branch     { font-size: var(--fs-sm); }
 

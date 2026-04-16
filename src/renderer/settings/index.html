@@ -7,10 +7,12 @@
   <title>Pingo 설정</title>
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="../shared/components-v2.css">
   <link rel="stylesheet" href="./settings.css">
 </head>
 <body>
   <main class="settings-root">
+    <!-- ── 헤더 ─────────────────────────────────────────── -->
     <header class="settings-header">
       <div class="row" style="gap: var(--space-3);">
         <svg class="settings-logo" width="22" height="22" viewBox="0 0 16 16" aria-hidden="true">
@@ -20,48 +22,83 @@
         </svg>
         <h1 class="settings-title">Pingo 설정</h1>
       </div>
-      <p class="settings-subtitle">GitLab 연동 및 폴링 설정</p>
+      <p class="settings-subtitle">Git 연결 · AI Provider · 폴링 / 알림</p>
     </header>
 
-    <section class="settings-body col">
-      <!-- GitLab URL -->
-      <div class="field">
-        <label class="field-label" for="gitlab-url">GitLab URL</label>
-        <input id="gitlab-url" class="input" type="url"
-               placeholder="https://gitlab.example.com" autocomplete="off" spellcheck="false">
-        <span class="field-hint">Self-hosted GitLab 인스턴스 URL (끝에 슬래시 없이)</span>
-        <span class="field-error" id="err-gitlab-url" hidden></span>
-      </div>
+    <!-- ── 탭 바 ────────────────────────────────────────── -->
+    <nav class="tab-bar" role="tablist" aria-label="설정 섹션">
+      <button id="tab-git" type="button" role="tab" aria-controls="panel-git" aria-selected="true" class="tab-item is-active">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+        Git 연결
+      </button>
+      <button id="tab-ai" type="button" role="tab" aria-controls="panel-ai" aria-selected="false" class="tab-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+          <polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+        </svg>
+        AI
+      </button>
+    </nav>
 
-      <!-- Token -->
-      <div class="field">
-        <label class="field-label" for="token">Personal Access Token</label>
-        <div class="input-group">
-          <input id="token" class="input" type="password"
-                 placeholder="glpat-xxxxxxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false">
-          <button type="button" id="toggle-token" class="input-icon-btn"
-                  aria-label="토큰 표시 전환" title="표시/숨김">
-            <svg id="icon-eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-            </svg>
-            <svg id="icon-eye-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" hidden>
-              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
-            </svg>
-          </button>
+    <!-- ── 탭 패널 ──────────────────────────────────────── -->
+    <section class="settings-body">
+      <!-- [Git 연결] -->
+      <div id="panel-git" role="tabpanel" aria-labelledby="tab-git" class="tab-panel is-active">
+        <div class="field">
+          <div class="row" style="justify-content: space-between;">
+            <span class="field-label">연결된 서비스</span>
+            <button id="btn-add-connection" type="button" class="btn btn-secondary btn-sm">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              서비스 추가
+            </button>
+          </div>
+          <ul id="connection-list" class="connection-list" aria-live="polite"></ul>
+          <div id="connection-empty" class="connection-empty" hidden>
+            아직 등록된 Git 연결이 없습니다. "서비스 추가" 버튼으로 GitLab 또는 GitHub를 연결하세요.
+          </div>
         </div>
-        <span class="field-hint">scope: api, read_user</span>
-        <span class="field-error" id="err-token" hidden></span>
+
+        <!-- 인라인 편집 폼 (추가/편집 시 동적 렌더) -->
+        <div id="git-form-host" hidden></div>
       </div>
 
-      <!-- User ID -->
-      <div class="field">
-        <label class="field-label" for="user-id">User ID</label>
-        <input id="user-id" class="input" type="number" min="1" placeholder="123" autocomplete="off">
-        <span class="field-hint">GitLab 프로필 → Edit profile → ID (또는 연결 테스트로 자동 탐지)</span>
-        <span class="field-error" id="err-user-id" hidden></span>
-      </div>
+      <!-- [AI] -->
+      <div id="panel-ai" role="tabpanel" aria-labelledby="tab-ai" class="tab-panel" hidden>
+        <div class="field">
+          <label class="field-label" for="ai-provider">AI 제공자</label>
+          <select id="ai-provider" class="select">
+            <option value="claude-cli">Claude CLI</option>
+            <option value="codex-cli">Codex CLI</option>
+            <option value="anthropic-api">Anthropic API</option>
+            <option value="openai-api">OpenAI API</option>
+            <option value="ollama">Ollama (로컬)</option>
+          </select>
+          <span class="field-hint">리뷰 생성에 사용할 AI. CLI가 빠르고 API는 원격 요금 발생.</span>
+        </div>
 
-      <!-- Poll interval -->
+        <div id="ai-fields" class="col" style="gap: var(--space-5);"></div>
+
+        <div class="field">
+          <div class="row" style="gap: var(--space-3);">
+            <button id="btn-ai-test" type="button" class="btn btn-secondary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+              <span id="ai-test-label">가용성 확인</span>
+            </button>
+            <span id="ai-test-result" class="status-line" hidden></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 공통 하단 (폴링/알림) ────────────────────────── -->
+    <section class="settings-common">
       <div class="field">
         <label class="field-label" for="poll-interval">
           폴링 간격 <span class="text-accent text-mono" id="poll-value">30s</span>
@@ -70,33 +107,17 @@
         <span class="field-hint">10초 ~ 5분</span>
       </div>
 
-      <!-- Notification enabled -->
       <div class="field">
         <label class="checkbox-row">
           <input id="notification-enabled" type="checkbox" checked>
           <span class="checkbox-label">알림 활성화 (토스트 표시)</span>
         </label>
       </div>
-
-      <!-- Connection test -->
-      <div class="field">
-        <div class="row" style="gap: var(--space-3);">
-          <button id="btn-test" class="btn btn-secondary" type="button">
-            <span id="test-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-              </svg>
-            </span>
-            <span>연결 테스트</span>
-          </button>
-          <span id="test-result" class="status-line" hidden></span>
-        </div>
-      </div>
     </section>
 
     <footer class="settings-footer">
       <button id="btn-cancel" class="btn btn-ghost" type="button">취소</button>
-      <button id="btn-save"   class="btn btn-primary" type="button" disabled>저장</button>
+      <button id="btn-save"   class="btn btn-primary" type="button">저장</button>
     </footer>
   </main>
 

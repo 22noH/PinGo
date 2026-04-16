@@ -4,10 +4,10 @@
   "description": "GitLab MR tray notifier with Claude AI review",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/bundle-renderer.js && node scripts/copy-renderer.js",
     "build:watch": "tsc -p tsconfig.json --watch",
-    "start": "npm run build && electron .",
-    "dev": "npm run build && electron . --dev",
+    "start": "npm run build && npm run generate-icons && electron .",
+    "dev": "npm run build && npm run generate-icons && electron . --dev",
     "generate-icons": "node scripts/generate-icons.js",
     "dist": "npm run build && electron-builder --win nsis"
   },
@@ -21,15 +21,18 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.89.0",
     "axios": "^1.7.7",
     "dotenv": "^16.4.5",
     "electron-log": "^5.2.0",
-    "electron-store": "^8.2.0"
+    "electron-store": "^8.2.0",
+    "openai": "^6.34.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "electron": "^32.0.0",
     "electron-builder": "^25.0.5",
+    "esbuild": "^0.28.0",
     "sharp": "^0.33.5",
     "typescript": "^5.5.4"
   },
@@ -42,7 +45,6 @@
     "files": [
       "dist/**/*",
       "assets/**/*",
-      "src/renderer/**/*.html",
       "package.json"
     ],
     "win": {

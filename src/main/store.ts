@@ -1,52 +1,43 @@
-// main/store.ts — electron-store 초기화
+// main/store.ts — electron-store 초기화 (v2, loose schema)
 import Store from 'electron-store';
-import type { AppSettings, StoreSchema } from '../shared/types';
-import { DEFAULT_POLL_INTERVAL_MS, MIN_POLL_INTERVAL_MS } from '../shared/constants';
+import type { StoreSchema } from '../shared/types';
+import { MIN_POLL_INTERVAL_MS } from '../shared/constants';
+import { DEFAULT_V2_SETTINGS, migrateStoreV1ToV2 } from './store-migrate';
 
-export const DEFAULT_SETTINGS: AppSettings = {
-  gitlabUrl: '',
-  token: '',
-  userId: 0,
-  pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-  notificationEnabled: true,
-};
-
+/**
+ * electron-store는 JSON Schema validation이 엄격합니다. v2의 union 타입
+ * (`GitConfig` / `AIConfig`)을 JSON Schema로 표현하면 장황하고 에러 메시지가
+ * 나쁘므로 loose schema만 유지 — 디스크 파손/외부 편집에 대한 최소 방어선.
+ * union 내부 구조는 TS 타입 + 런타임 guard(store-migrate.ts)로 보증.
+ *
+ * TODO (v3): token은 현재 평문 저장. OS keychain 연동(keytar) 검토.
+ */
 export function createStore(): Store<StoreSchema> {
-  // TODO (v2): token은 현재 평문 저장. v2에서 OS keychain 연동 (keytar)으로 대체.
-  return new Store<StoreSchema>({
+  const store = new Store<StoreSchema>({
     name: 'pingo-config',
     defaults: {
-      settings: DEFAULT_SETTINGS,
-      seenMrIds: [],
-      recentMrs: [],
+      settings: DEFAULT_V2_SETTINGS,
+      seenItemIds: [],
+      recentItems: [],
     },
     schema: {
-      settings: {
-        type: 'object',
-        properties: {
-          gitlabUrl: { type: 'string' },
-          token: { type: 'string' },
-          userId: { type: 'number' },
-          pollIntervalMs: { type: 'number', minimum: MIN_POLL_INTERVAL_MS },
-          notificationEnabled: { type: 'boolean' },
-        },
-        required: [
-          'gitlabUrl',
-          'token',
-          'userId',
-          'pollIntervalMs',
-          'notificationEnabled',
-        ],
-      },
-      seenMrIds: {
+      settings: { type: 'object' },
+      seenItemIds: {
         type: 'array',
-        items: { type: 'number' },
+        items: { type: 'string' },
       },
-      recentMrs: {
+      recentItems: {
         type: 'array',
         maxItems: 5,
         items: { type: 'object' },
       },
     },
   });
+  migrateStoreV1ToV2(store);
+  // pollIntervalMs 방어 — loose schema에서는 validation 없음 → 런타임 clamp
+  const s = store.get('settings');
+  if (s.pollIntervalMs < MIN_POLL_INTERVAL_MS) {
+    store.set('settings', { ...s, pollIntervalMs: MIN_POLL_INTERVAL_MS });
+  }
+  return store;
 }

@@ -1,11 +1,11 @@
-// main/notifier.ts — Windows 토스트 알림
+// main/notifier.ts — Windows 토스트 알림 (v2)
 import { Notification } from 'electron';
 import log from 'electron-log';
-import type { MergeRequest, NotificationAction } from '../shared/types';
+import type { NotificationAction, ReviewItemSummary } from '../shared/types';
 
 export type NotificationActionCallback = (
   action: NotificationAction,
-  mr: MergeRequest,
+  item: ReviewItemSummary,
 ) => void;
 
 /**
@@ -14,7 +14,7 @@ export type NotificationActionCallback = (
  * 버튼 클릭 index → NotificationAction 매핑.
  */
 export function sendMrNotification(
-  mr: MergeRequest,
+  item: ReviewItemSummary,
   onAction: NotificationActionCallback,
 ): void {
   if (!Notification.isSupported()) {
@@ -22,35 +22,35 @@ export function sendMrNotification(
     return;
   }
 
-  const title = `새 MR: #${mr.iid}`;
-  const body = `${mr.title}\n${mr.author.name} → ${mr.target_branch}`;
+  const prefix = `[${item.providerLabel}]`;
+  const title = `${prefix} 새 ${item.providerType === 'gitlab' ? 'MR' : 'PR'}: #${item.itemId}`;
+  const body = `${item.title}\n${item.author.name}${item.targetBranch ? ` → ${item.targetBranch}` : ''}`;
 
   const notification = new Notification({
     title,
     body,
     silent: false,
     actions: [
-      { type: 'button', text: 'MR 열기' },
+      { type: 'button', text: '열기' },
       { type: 'button', text: 'AI 리뷰' },
     ],
   });
 
   notification.on('action', (_event, index: number) => {
     const action: NotificationAction = index === 1 ? 'review' : 'open';
-    log.info(`notifier: action=${action} mr=#${mr.iid}`);
-    onAction(action, mr);
+    log.info(`notifier: action=${action} item=${item.id}`);
+    onAction(action, item);
   });
 
-  // Windows 는 actions 미지원 환경에서 body 클릭으로 대체
   notification.on('click', () => {
-    log.info(`notifier: click (fallback=open) mr=#${mr.iid}`);
-    onAction('open', mr);
+    log.info(`notifier: click (fallback=open) item=${item.id}`);
+    onAction('open', item);
   });
 
   notification.on('failed', (_event, error) => {
-    log.error(`notifier: show failed mr=#${mr.iid}: ${error}`);
+    log.error(`notifier: show failed item=${item.id}: ${error}`);
   });
 
   notification.show();
-  log.info(`notifier: shown mr=#${mr.iid}`);
+  log.info(`notifier: shown item=${item.id}`);
 }

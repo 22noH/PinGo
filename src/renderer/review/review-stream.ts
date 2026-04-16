@@ -1,5 +1,5 @@
-// review-stream.ts — 스트리밍 렌더링/자동 스크롤/파일 목록 관리
-import type { MRChange } from '../../shared/types';
+// review-stream.ts — 스트리밍 렌더링/자동 스크롤/파일 목록 관리 (v2 ItemChange)
+import type { ItemChange } from '../../shared/types';
 import { renderPartial } from './review-markdown';
 
 export interface StreamView {
@@ -15,7 +15,7 @@ export class StreamController {
   private buffer = '';
   private userScrolledUp = false;
 
-  constructor(private view: StreamView, private onFileClick: (change: MRChange) => void) {
+  constructor(private view: StreamView, private onFileClick: (change: ItemChange) => void) {
     this.view.scroll.addEventListener('scroll', () => this.onScroll());
     this.view.scrollBtn.addEventListener('click', () => {
       this.userScrolledUp = false;
@@ -48,8 +48,8 @@ export class StreamController {
     return this.buffer;
   }
 
-  /** MergeRequestWithChanges 수신 시 파일 목록 패널 렌더 */
-  setFileList(changes: MRChange[]): void {
+  /** ReviewItemWithChanges 수신 시 파일 목록 패널 렌더 */
+  setFileList(changes: ItemChange[]): void {
     this.view.fileList.innerHTML = '';
     if (changes.length === 0) {
       this.renderEmpty('변경 파일이 없습니다.');
@@ -123,7 +123,7 @@ export class StreamController {
     }
   }
 
-  private addFileItem(change: MRChange): void {
+  private addFileItem(change: ItemChange): void {
     const li = document.createElement('li');
     li.className = 'file-item';
     li.tabIndex = 0;
