@@ -9,16 +9,38 @@ body {
   flex-direction: column;
 }
 
+/* ── 타이틀바 드래그 영역 ────────────────────────────────── */
+.settings-titlebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 42px;
+  padding: 0 var(--space-4);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  /* 전체 영역 드래그 가능 */
+  -webkit-app-region: drag;
+}
+
+.settings-titlebar-text {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
 .settings-root {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1 1 auto;
   width: 100%;
   max-width: 580px;
   margin: 0 auto;
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-4) var(--space-6);
   gap: var(--space-4);
   overflow: hidden;
+  min-height: 0;
 }
 
 .settings-header {
@@ -27,28 +49,11 @@ body {
   gap: var(--space-1);
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
-  /* titleBarOverlay 영역 — 창 드래그 가능 */
-  -webkit-app-region: drag;
-}
-.settings-header * {
-  -webkit-app-region: no-drag;
-}
-
-.settings-title {
-  font-size: var(--fs-xl);
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
 }
 
 .settings-subtitle {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
-  margin-left: 32px;
-}
-
-.settings-logo {
-  flex-shrink: 0;
 }
 
 .settings-body {
