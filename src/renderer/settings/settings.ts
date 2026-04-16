@@ -18,9 +18,10 @@ const tabAi        = $<HTMLButtonElement>('tab-ai');
 const panelGit     = $<HTMLElement>('panel-git');
 const panelAi      = $<HTMLElement>('panel-ai');
 
-const pollInput    = $<HTMLInputElement>('poll-interval');
-const pollValue    = $<HTMLSpanElement>('poll-value');
-const notifInput   = $<HTMLInputElement>('notification-enabled');
+const pollInput       = $<HTMLInputElement>('poll-interval');
+const pollValue       = $<HTMLSpanElement>('poll-value');
+const notifInput      = $<HTMLInputElement>('notification-enabled');
+const startupInput    = $<HTMLInputElement>('launch-on-startup');
 
 const saveBtn      = $<HTMLButtonElement>('btn-save');
 const cancelBtn    = $<HTMLButtonElement>('btn-cancel');
@@ -77,6 +78,7 @@ async function save(): Promise<void> {
       ai,
       pollIntervalMs: Number(pollInput.value) * 1000,
       notificationEnabled: notifInput.checked,
+      launchOnStartup: startupInput.checked,
     };
     await window.electronAPI.saveSettings({ settings: merged });
     window.close();
@@ -140,7 +142,8 @@ async function bootstrap(): Promise<void> {
     const sec = Math.max(10, Math.min(300, Math.round(settings.pollIntervalMs / 1000)));
     pollInput.value = String(sec);
     renderPollValue(sec);
-    notifInput.checked = settings.notificationEnabled;
+    notifInput.checked   = settings.notificationEnabled;
+    startupInput.checked = settings.launchOnStartup ?? false;
 
     await initGitTab(settings.gitConnections);
     initAITab(settings.ai);

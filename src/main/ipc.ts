@@ -64,6 +64,7 @@ export interface IpcDeps {
   /** 폴링 간격/알림 토글 등 기타 설정 적용 */
   onSettingsSaved: (settings: AppSettings) => void;
   onNotificationToggle: () => void;
+  applyStartup: (enabled: boolean) => void;
 }
 
 let currentRun: RunHandle | null = null;
@@ -210,6 +211,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     log.info('ipc: settings saved (full)');
     deps.rebuildProviders(payload.settings.gitConnections);
     deps.rebuildAIProvider(payload.settings.ai);
+    deps.applyStartup(payload.settings.launchOnStartup ?? false);
     deps.onSettingsSaved(payload.settings);
   });
 

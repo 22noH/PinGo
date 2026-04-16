@@ -142,6 +142,7 @@ export interface AppSettings {
   ai: AIConfig;                // 기본값: { type: 'claude-cli' }
   pollIntervalMs: number;
   notificationEnabled: boolean;
+  launchOnStartup: boolean;    // Windows 로그인 시 자동 시작
 }
 
 // ── StoreSchema (v2) ────────────────────────────────────────

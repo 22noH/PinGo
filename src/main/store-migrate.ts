@@ -18,6 +18,7 @@ export const DEFAULT_V2_SETTINGS: AppSettings = {
   ai: DEFAULT_AI,
   pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
   notificationEnabled: true,
+  launchOnStartup: false,
 };
 
 /**
@@ -73,6 +74,7 @@ export function migrateStoreV1ToV2(store: Store<StoreSchema>): void {
     ai: DEFAULT_AI,
     pollIntervalMs: v1.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     notificationEnabled: v1.notificationEnabled ?? true,
+    launchOnStartup: false,
   };
 
   store.set('settings', v2Settings);

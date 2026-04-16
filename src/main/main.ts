@@ -233,6 +233,13 @@ function bootstrap(): void {
     getReviewWindow: (): BrowserWindow | null => reviewWindow,
     openReviewWindow,
     openDetachedWindow: (item, spawnAt) => openDetachedWindow(item, spawnAt),
+    applyStartup: (enabled: boolean): void => {
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        path: process.execPath,
+      });
+      log.info(`main: launchOnStartup set to ${String(enabled)}`);
+    },
     rebuildProviders: (): void => {
       // 설정 저장 시 providers 재구성 — 신규 연결은 silent pre-seed 먼저 실행 후 poller restart
       void (async (): Promise<void> => {
