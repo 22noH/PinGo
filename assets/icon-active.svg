@@ -9,6 +9,4 @@
   <!-- eye shine -->
   <circle cx="13.9" cy="14.1" r="0.85" fill="white"/>
   <circle cx="19.9" cy="14.1" r="0.85" fill="white"/>
-  <!-- status: green dot -->
-  <circle cx="27" cy="5" r="5" fill="#a6e3a1" stroke="#40a02b" stroke-width="0.8"/>
 </svg>

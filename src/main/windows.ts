@@ -24,7 +24,7 @@ export function createAppWindow(
     show: false,
     maximizable,
     backgroundColor: '#1a1b2e',
-    icon: path.join(dirs.assetsDir, 'icon-active.png'),
+    icon: path.join(dirs.assetsDir, 'app-icon.png'),
     ...(overlayTitleBar
       ? {
           titleBarStyle: 'hidden',
