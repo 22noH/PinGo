@@ -14,26 +14,20 @@ export interface ReviewTab {
 }
 
 type TabChangeCallback = (tab: ReviewTab) => void;
-type DetachCallback = (tab: ReviewTab) => void;
-
 let tabs: ReviewTab[] = [];
 let activeId: string | null = null;
 let onActivate: TabChangeCallback = () => undefined;
-let onDetach: DetachCallback = () => undefined;
 let tabBarEl: HTMLElement | null = null;
 
 export function initTabs(
   barEl: HTMLElement,
   cb: TabChangeCallback,
-  detachCb: DetachCallback,
 ): void {
   tabBarEl = barEl;
   onActivate = cb;
-  onDetach = detachCb;
   // Main 프로세스가 커서가 창 밖으로 나갔음을 알릴 때 해당 탭 분리
   window.electronAPI.onTabDragDetach((tabId: string) => {
-    const tab = tabs.find((t) => t.id === tabId);
-    if (tab && tabs.length > 1) { onDetach(tab); closeById(tab.id); }
+    closeById(tabId); // 마지막 탭이면 window.close() 까지 처리됨
   });
 }
 
@@ -123,17 +117,18 @@ export function renderBar(): void {
   }
 }
 
-/** 탭 드래그 감지: 8px 이상 움직이면 ghost 표시 + main 프로세스에 커서 추적 위임 */
+/** 탭 드래그 감지: 8px 이상 움직이면 ghost 표시, 릴리즈 시 main에 드롭 위치 판단 위임 */
 function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
   btn.addEventListener('pointerdown', (e: PointerEvent) => {
     if (e.button !== 0) return;
+    // 닫기 버튼 클릭은 드래그로 처리하지 않음
+    if ((e.target as Element).closest('.review-tab-close')) return;
     btn.setPointerCapture(e.pointerId);
 
     const startX = e.clientX, startY = e.clientY;
     let ghost: HTMLElement | null = null;
     let dragStarted = false;
     const strip = tabBarEl?.parentElement;
-    strip?.classList.add('dragging-tab');
 
     const onMove = (ev: PointerEvent): void => {
       if (!dragStarted && (Math.abs(ev.clientX - startX) > 8 || Math.abs(ev.clientY - startY) > 8)) {
@@ -141,7 +136,7 @@ function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
         ghost = createGhost(btn, ev.clientX, ev.clientY);
         document.body.appendChild(ghost);
         document.body.style.cursor = 'grabbing';
-        // main 프로세스에 커서 추적 시작 요청
+        strip?.classList.add('dragging-tab');
         window.electronAPI.tabDragStart(tab.id, tab.item);
       }
       if (dragStarted && ghost) {
@@ -158,7 +153,16 @@ function attachDragDetach(btn: HTMLButtonElement, tab: ReviewTab): void {
       ghost?.remove(); ghost = null;
       document.body.style.cursor = '';
       strip?.classList.remove('dragging-tab');
-      if (dragStarted) { dragStarted = false; window.electronAPI.tabDragEnd(); }
+      if (dragStarted) {
+        dragStarted = false;
+        if (ev.type === 'pointerup') {
+          // 릴리즈: main 프로세스가 드롭 위치 보고 분리/병합/취소 결정
+          window.electronAPI.tabDragDrop(tab.id, tab.item);
+        } else {
+          // 취소 (pointercancel)
+          window.electronAPI.tabDragEnd();
+        }
+      }
     };
 
     btn.addEventListener('pointermove', onMove);

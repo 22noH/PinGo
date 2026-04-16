@@ -38,11 +38,13 @@ export const GIT_CONNECTION_TEST = 'git:connection:test' as const;
 export const AI_CONFIG_LOAD = 'ai:config:load' as const;
 export const AI_CONFIG_SAVE = 'ai:config:save' as const;
 export const AI_AVAILABILITY_TEST = 'ai:availability:test' as const;
-/** 탭 드래그 시작: main 프로세스에 커서 추적 요청 */
+/** 탭 드래그 시작: main 프로세스에 알림 */
 export const TAB_DRAG_START  = 'review:tab-drag-start'  as const;
-/** 탭 드래그 종료 (창 안에서 놓음) */
+/** 탭 드래그 종료 (취소 — pointercancel) */
 export const TAB_DRAG_END    = 'review:tab-drag-end'    as const;
-/** Main → Renderer: 커서가 창 밖으로 나감 → 탭 분리 실행 */
+/** 탭 드래그 릴리즈: main 프로세스가 드롭 위치 판단 → 분리/병합/취소 */
+export const TAB_DRAG_DROP   = 'review:tab-drag-drop'   as const;
+/** Main → Renderer: 탭 분리 완료 → closeById 실행 */
 export const TAB_DRAG_DETACH = 'review:tab-drag-detach' as const;
 
 export const OLLAMA_MODELS_FETCH = 'ollama:models:fetch' as const;

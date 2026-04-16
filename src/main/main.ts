@@ -111,8 +111,8 @@ function openReviewWindow(item?: ReviewItemSummary | ReviewItemWithChanges): voi
   if (item) sendItemToWin(reviewWindow, item);
 }
 
-function openDetachedWindow(item: ReviewItemSummary | ReviewItemWithChanges): void {
-  const win = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760, true);
+function openDetachedWindow(item: ReviewItemSummary | ReviewItemWithChanges, spawnAt?: { x: number; y: number }): void {
+  const win = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760, true, true, spawnAt);
   win.on('closed', () => { if (reviewWindow === win) reviewWindow = null; });
   if (!reviewWindow || reviewWindow.isDestroyed()) reviewWindow = win;
   sendItemToWin(win, item);
@@ -232,7 +232,7 @@ function bootstrap(): void {
     store,
     getReviewWindow: (): BrowserWindow | null => reviewWindow,
     openReviewWindow,
-    openDetachedWindow,
+    openDetachedWindow: (item, spawnAt) => openDetachedWindow(item, spawnAt),
     rebuildProviders: (): void => {
       // 설정 저장 시 providers 재구성 — 신규 연결은 silent pre-seed 먼저 실행 후 poller restart
       void (async (): Promise<void> => {

@@ -69,7 +69,6 @@ initTabs(
     if (!tab.id) { renderHeader(null); setReviewState('idle'); return; }
     restoreTab(tab);
   },
-  () => { /* main 프로세스가 openDetachedWindow로 새 창 직접 열어줌 */ },
 );
 
 function saveCurrentTab(): void {

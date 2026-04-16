@@ -16,12 +16,14 @@ export function createAppWindow(
   height: number,
   overlayTitleBar = false,
   maximizable = true,
+  spawnAt?: { x: number; y: number },
 ): BrowserWindow {
   const win = new BrowserWindow({
     width,
     height,
     title,
     show: false,
+    ...(spawnAt ? { x: Math.round(spawnAt.x - width / 2), y: spawnAt.y } : {}),
     maximizable,
     backgroundColor: '#1a1b2e',
     icon: path.join(dirs.assetsDir, 'app-icon.png'),

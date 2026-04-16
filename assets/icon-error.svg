@@ -1,16 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- blob body (slightly desaturated) -->
-  <path d="M16 7 C22 7 27 11 27 17 C27 20 30 20 30 22 C30 24 27 24 25 23 C24 24 22 27 16 27 C10 27 8 24 7 23 C5 24 2 24 2 22 C2 20 5 20 5 17 C5 11 10 7 16 7 Z" fill="#eceae6"/>
+  <!-- blob body: cold dark gray (error) -->
+  <path d="M16 7 C22 7 27 11 27 17 C27 20 30 20 30 22 C30 24 27 24 25 23 C24 24 22 27 16 27 C10 27 8 24 7 23 C5 24 2 24 2 22 C2 20 5 20 5 17 C5 11 10 7 16 7 Z" fill="#9ba3b4"/>
   <!-- fluffy highlight -->
-  <ellipse cx="15" cy="14" rx="4" ry="3" fill="white" opacity="0.4"/>
+  <ellipse cx="15" cy="14" rx="4" ry="3" fill="white" opacity="0.3"/>
   <!-- sad eyebrows -->
-  <line x1="11.3" y1="12.3" x2="14.7" y2="13.1" stroke="#9a9590" stroke-width="1.2" stroke-linecap="round"/>
-  <line x1="17.3" y1="13.1" x2="20.7" y2="12.3" stroke="#9a9590" stroke-width="1.2" stroke-linecap="round"/>
-  <!-- eyes: sad (smaller, subdued) -->
-  <circle cx="13" cy="15.5" r="2" fill="#7a7870"/>
-  <circle cx="19" cy="15.5" r="2" fill="#7a7870"/>
-  <!-- status: error X dot -->
-  <circle cx="27" cy="5" r="5" fill="#45475a" stroke="#313244" stroke-width="0.8"/>
-  <line x1="24.5" y1="2.5" x2="29.5" y2="7.5" stroke="#cdd6f4" stroke-width="1.5" stroke-linecap="round"/>
-  <line x1="29.5" y1="2.5" x2="24.5" y2="7.5" stroke="#cdd6f4" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="11.3" y1="12.3" x2="14.7" y2="13.1" stroke="#6b7280" stroke-width="1.2" stroke-linecap="round"/>
+  <line x1="17.3" y1="13.1" x2="20.7" y2="12.3" stroke="#6b7280" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- eyes: sad (subdued) -->
+  <circle cx="13" cy="15.5" r="2" fill="#4b5263"/>
+  <circle cx="19" cy="15.5" r="2" fill="#4b5263"/>
 </svg>

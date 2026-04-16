@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- blob body -->
-  <path d="M16 7 C22 7 27 11 27 17 C27 20 30 20 30 22 C30 24 27 24 25 23 C24 24 22 27 16 27 C10 27 8 24 7 23 C5 24 2 24 2 22 C2 20 5 20 5 17 C5 11 10 7 16 7 Z" fill="#f5f0e5"/>
+  <!-- blob body: warm golden-cream (excited/alert) -->
+  <path d="M16 7 C22 7 27 11 27 17 C27 20 30 20 30 22 C30 24 27 24 25 23 C24 24 22 27 16 27 C10 27 8 24 7 23 C5 24 2 24 2 22 C2 20 5 20 5 17 C5 11 10 7 16 7 Z" fill="#f5d878"/>
   <!-- fluffy highlight -->
-  <ellipse cx="15" cy="14" rx="4" ry="3" fill="white" opacity="0.55"/>
+  <ellipse cx="15" cy="14" rx="4" ry="3" fill="white" opacity="0.5"/>
   <!-- eyes: wide/excited -->
   <circle cx="13" cy="15" r="2.8" fill="white"/>
   <circle cx="19" cy="15" r="2.8" fill="white"/>
@@ -10,8 +10,4 @@
   <circle cx="19" cy="15.4" r="1.7" fill="#231f2e"/>
   <circle cx="13.9" cy="14.3" r="0.7" fill="white"/>
   <circle cx="19.9" cy="14.3" r="0.7" fill="white"/>
-  <!-- status: yellow ! dot -->
-  <circle cx="27" cy="5" r="5" fill="#f9e2af" stroke="#df8e1d" stroke-width="0.8"/>
-  <rect x="25.8" y="2.8" width="1.4" height="3.8" rx="0.7" fill="#1a1b2e"/>
-  <circle cx="26.5" cy="7.8" r="0.7" fill="#1a1b2e"/>
 </svg>

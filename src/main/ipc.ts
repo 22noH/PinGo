@@ -33,8 +33,10 @@ import {
   GIT_CONNECTIONS_LOAD,
   GIT_CONNECTIONS_SAVE,
   GIT_CONNECTION_TEST,
+  ITEM_NEW,
   TAB_DRAG_START,
   TAB_DRAG_END,
+  TAB_DRAG_DROP,
   TAB_DRAG_DETACH,
   NOTIFICATION_TOGGLE,
   OLLAMA_MODELS_FETCH,
@@ -54,7 +56,7 @@ export interface IpcDeps {
   store: Store<StoreSchema>;
   getReviewWindow: () => BrowserWindow | null;
   openReviewWindow: (item: ReviewItem) => void;
-  openDetachedWindow: (item: ReviewItem) => void;
+  openDetachedWindow: (item: ReviewItem, spawnAt?: { x: number; y: number }) => void;
   /** GitConfig[] 변경 시 poller의 providers 재구성 트리거 */
   rebuildProviders: (configs: GitConfig[]) => void;
   /** AIConfig 변경 시 review-runner 재구성 트리거 */
@@ -156,30 +158,40 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.onNotificationToggle();
   });
 
-  // ── 탭 드래그 분리: main 프로세스에서 커서 위치 폴링 ────────
-  let dragInterval: ReturnType<typeof setInterval> | null = null;
+  // ── 탭 드래그: 릴리즈 시점에 드롭 위치 판단 ─────────────────
+  ipcMain.on(TAB_DRAG_START, () => { /* drag 시작 알림 — 현재 main 쪽은 no-op */ });
+  ipcMain.on(TAB_DRAG_END,   () => { /* 드래그 취소 (pointercancel) — no-op */ });
 
-  ipcMain.on(TAB_DRAG_START, (e, payload: { tabId: string; item: ReviewItem }) => {
-    if (dragInterval) { clearInterval(dragInterval); dragInterval = null; }
+  ipcMain.on(TAB_DRAG_DROP, (e, payload: { tabId: string; item: ReviewItem }) => {
     const sourceWin = BrowserWindow.fromWebContents(e.sender);
-    if (!sourceWin) return;
+    if (!sourceWin || sourceWin.isDestroyed()) return;
     const { tabId, item } = payload;
-    dragInterval = setInterval(() => {
-      if (sourceWin.isDestroyed()) { clearInterval(dragInterval!); dragInterval = null; return; }
-      const cur = screen.getCursorScreenPoint();
-      const b = sourceWin.getBounds();
-      const outside = cur.x < b.x - 40 || cur.x > b.x + b.width + 40
-                   || cur.y < b.y - 40 || cur.y > b.y + b.height + 40;
-      if (outside) {
-        clearInterval(dragInterval!); dragInterval = null;
-        deps.openDetachedWindow(item);
-        if (!sourceWin.isDestroyed()) sourceWin.webContents.send(TAB_DRAG_DETACH, tabId);
-      }
-    }, 50);
-  });
 
-  ipcMain.on(TAB_DRAG_END, () => {
-    if (dragInterval) { clearInterval(dragInterval); dragInterval = null; }
+    const cur = screen.getCursorScreenPoint();
+    const sb  = sourceWin.getBounds();
+    const onSource = cur.x >= sb.x && cur.x <= sb.x + sb.width
+                  && cur.y >= sb.y && cur.y <= sb.y + sb.height;
+    if (onSource) return; // 같은 창 위에 드롭 → 취소
+
+    // 다른 BrowserWindow 위에 드롭됐는지 확인
+    const targetWin = BrowserWindow.getAllWindows().find((w) => {
+      if (w === sourceWin || w.isDestroyed()) return false;
+      const b = w.getBounds();
+      return cur.x >= b.x && cur.x <= b.x + b.width
+          && cur.y >= b.y && cur.y <= b.y + b.height;
+    });
+
+    if (targetWin) {
+      // 기존 창으로 병합
+      targetWin.webContents.send(ITEM_NEW, item);
+      targetWin.show();
+      targetWin.focus();
+    } else {
+      // 빈 공간에 드롭 → 커서 위치에 새 창 생성
+      deps.openDetachedWindow(item, cur);
+    }
+    // 원본 창에서 탭 제거
+    sourceWin.webContents.send(TAB_DRAG_DETACH, tabId);
   });
 
   ipcMain.handle(
@@ -291,6 +303,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners(NOTIFICATION_TOGGLE);
   ipcMain.removeAllListeners(TAB_DRAG_START);
   ipcMain.removeAllListeners(TAB_DRAG_END);
+  ipcMain.removeAllListeners(TAB_DRAG_DROP);
   if (currentRun) {
     currentRun.abort();
     currentRun = null;

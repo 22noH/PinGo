@@ -43,6 +43,7 @@ import {
   OLLAMA_MODELS_FETCH,
   TAB_DRAG_START,
   TAB_DRAG_END,
+  TAB_DRAG_DROP,
   TAB_DRAG_DETACH,
 } from './shared/constants';
 
@@ -54,6 +55,7 @@ export interface ElectronAPI {
   toggleNotification: () => void;
   tabDragStart: (tabId: string, item: ReviewItem) => void;
   tabDragEnd: () => void;
+  tabDragDrop: (tabId: string, item: ReviewItem) => void;
 
   // ── Renderer → Main (invoke, 응답 대기) ───────────────────
   postComment: (payload: CommentPostPayload) => Promise<CommentPostResult>;
@@ -113,6 +115,9 @@ const api: ElectronAPI = {
   },
   tabDragEnd: (): void => {
     ipcRenderer.send(TAB_DRAG_END);
+  },
+  tabDragDrop: (tabId: string, item: ReviewItem): void => {
+    ipcRenderer.send(TAB_DRAG_DROP, { tabId, item });
   },
 
   postComment: (payload: CommentPostPayload): Promise<CommentPostResult> =>
