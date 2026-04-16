@@ -7,6 +7,77 @@ body {
   flex-direction: column;
 }
 
+/* ── 탭 스트립 (titleBarOverlay 높이=42px 맞춤) ─────────────── */
+.review-tabstrip {
+  display: flex;
+  align-items: flex-end;
+  height: 42px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  gap: 2px;
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  /* 탭바 전체는 드래그 가능 영역 (Window 이동) */
+  -webkit-app-region: drag;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.review-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-radius: 6px 6px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 180px;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  /* 탭 버튼 자체는 클릭 가능 — no-drag */
+  -webkit-app-region: no-drag;
+}
+.review-tab:hover {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+.review-tab.is-active {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.review-tab-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.review-tab-close:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
 .review-root {
   display: grid;
   grid-template-rows: auto 1fr auto;

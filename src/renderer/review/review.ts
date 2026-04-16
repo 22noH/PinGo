@@ -14,6 +14,8 @@ import { PROVIDER_SHORT_LABEL, PROVIDER_DISPLAY_NAME } from '../../shared/consta
 import { initMarked } from './review-markdown';
 import { StreamController, type StreamView } from './review-stream';
 import { openDiffModal } from './review-diff-modal';
+import { initTabs, addOrActivate, getActive, updateActive, closeById, getTabCount } from './review-tabs';
+import type { ReviewTab } from './review-tabs';
 
 type AnyItem = ReviewItemSummary | ReviewItemWithChanges;
 
@@ -33,6 +35,7 @@ const mrBranch    = $<HTMLElement>('mr-branch');
 const mrAuthor    = $<HTMLElement>('mr-author');
 const mrLink      = $<HTMLAnchorElement>('mr-link');
 const stateBadge  = $<HTMLElement>('review-state-badge');
+const tabBar      = $<HTMLElement>('review-tabstrip');
 
 const idleBox     = $<HTMLElement>('review-idle');
 const markdownEl  = $<HTMLElement>('review-markdown');
@@ -50,7 +53,6 @@ const btnComment  = $<HTMLButtonElement>('btn-comment');
 const btnRetry    = $<HTMLButtonElement>('btn-retry');
 
 // ── 상태 ─────────────────────────────────────────────────────
-let currentItem: AnyItem | null = null;
 let reviewState: ReviewState = 'idle';
 
 const streamView: StreamView = {
@@ -59,11 +61,50 @@ const streamView: StreamView = {
 };
 const stream = new StreamController(streamView, (change: ItemChange) => openDiffModal(change));
 
-// ── 헤더 렌더링 ─────────────────────────────────────────────
-function renderHeader(item: AnyItem): void {
-  currentItem = item;
+// ── 탭 초기화 ────────────────────────────────────────────────
+initTabs(tabBar, (tab) => {
+  if (!tab.id) {
+    renderHeader(null);
+    setReviewState('idle');
+    return;
+  }
+  restoreTab(tab);
+});
 
-  // provider 배지 + 아이디 표시 (MR #N / PR #N)
+function saveCurrentTab(): void {
+  updateActive({
+    state: reviewState,
+    savedHtml: markdownEl.innerHTML,
+    fileHtml: fileList.innerHTML,
+    fileCount: fileCount.textContent ?? '0',
+    errorMsg: errorMsg.textContent ?? '',
+  });
+}
+
+function restoreTab(tab: ReviewTab): void {
+  renderHeader(tab.item);
+  setReviewState(tab.state);
+  markdownEl.innerHTML = tab.savedHtml;
+  fileList.innerHTML = tab.fileHtml || '<li class="file-empty text-muted">리뷰가 시작되면 여기에 파일이 표시됩니다.</li>';
+  fileCount.textContent = tab.fileCount;
+  if (tab.errorMsg) errorMsg.textContent = tab.errorMsg;
+  if (tab.state === 'done' || tab.state === 'error') {
+    markdownEl.hidden = tab.state !== 'done' || !tab.savedHtml;
+  }
+}
+
+// ── 헤더 렌더링 ─────────────────────────────────────────────
+function renderHeader(item: AnyItem | null): void {
+  if (!item) {
+    mrIid.textContent = 'MR #—';
+    mrTitle.textContent = '로딩 중…';
+    mrBranch.textContent = '— → —';
+    mrAuthor.textContent = '—';
+    mrLink.href = '#';
+    mrLink.textContent = 'GitLab에서 열기';
+    document.title = 'Pingo — AI Review';
+    return;
+  }
   mrIid.innerHTML = '';
   const badge = document.createElement('span');
   badge.className = `provider-badge is-${item.providerType}`;
@@ -84,7 +125,8 @@ function renderHeader(item: AnyItem): void {
 
 mrLink.addEventListener('click', (e) => {
   e.preventDefault();
-  if (currentItem) window.electronAPI.openMrInBrowser(currentItem.webUrl);
+  const tab = getActive();
+  if (tab?.item) window.electronAPI.openMrInBrowser(tab.item.webUrl);
 });
 
 // ── 상태 머신 ───────────────────────────────────────────────
@@ -132,14 +174,13 @@ function stateClass(s: ReviewState): string {
 }
 
 // ── IPC 구독 ─────────────────────────────────────────────────
-// ITEM_NEW(=onItemNew)는 2회 발생:
-//   (1) 리뷰 윈도우 오픈 시 — ReviewItemSummary (헤더 초기화)
-//   (2) REVIEW_START 처리 후 fetchChanges 완료 — ReviewItemWithChanges (파일 목록 갱신)
 window.electronAPI.onItemNew((it: AnyItem): void => {
-  renderHeader(it);
+  saveCurrentTab();
+  const tab = addOrActivate(it);
   if (hasChanges(it)) {
     stream.setFileList(it.changes);
-  } else if (reviewState === 'idle') {
+    updateActive({ fileHtml: fileList.innerHTML, fileCount: fileCount.textContent ?? '0' });
+  } else if (tab.state === 'idle') {
     btnReview.disabled = false;
   }
 });
@@ -155,6 +196,7 @@ window.electronAPI.onReviewChunk(({ chunk }: ReviewChunkPayload): void => {
 window.electronAPI.onReviewDone((): void => {
   stream.finalize();
   setReviewState('done');
+  updateActive({ state: 'done', savedHtml: markdownEl.innerHTML });
 });
 
 window.electronAPI.onReviewError(({ message }: ReviewErrorPayload): void => {
@@ -163,17 +205,19 @@ window.electronAPI.onReviewError(({ message }: ReviewErrorPayload): void => {
   errorBox.hidden = false;
   markdownEl.hidden = true;
   setReviewState('error');
+  updateActive({ state: 'error', errorMsg: message });
 });
 
 // ── 버튼 핸들러 ─────────────────────────────────────────────
 function startReview(): void {
-  if (!currentItem) return;
+  const tab = getActive();
+  if (!tab?.item) return;
   stream.reset();
   stream.renderWaitingForChanges();
   setReviewState('loading');
-  const summary: ReviewItemSummary = hasChanges(currentItem)
-    ? stripChanges(currentItem)
-    : currentItem;
+  const summary: ReviewItemSummary = hasChanges(tab.item)
+    ? stripChanges(tab.item)
+    : tab.item;
   window.electronAPI.startReview({ item: summary });
 }
 
@@ -189,12 +233,14 @@ btnRetry.addEventListener('click', startReview);
 btnAbort.addEventListener('click', () => {
   window.electronAPI.abortReview();
   setReviewState('idle');
+  updateActive({ state: 'idle' });
 });
 
 btnComment.addEventListener('click', () => { void postComment(); });
 
 async function postComment(): Promise<void> {
-  if (!currentItem) return;
+  const tab = getActive();
+  if (!tab?.item) return;
   const body = stream.getFullText().trim();
   if (!body) return;
   const original = btnComment.innerHTML;
@@ -202,17 +248,17 @@ async function postComment(): Promise<void> {
   btnComment.innerHTML = '<span class="spinner"></span><span>등록 중…</span>';
   try {
     const result: CommentPostResult = await window.electronAPI.postComment({
-      gitConfigId: currentItem.gitConfigId,
-      projectId: currentItem.projectId,
-      repoFullName: currentItem.repoFullName,
-      itemId: currentItem.itemId,
+      gitConfigId: tab.item.gitConfigId,
+      projectId: tab.item.projectId,
+      repoFullName: tab.item.repoFullName,
+      itemId: tab.item.itemId,
       body,
     });
     if (result.success) {
       btnComment.innerHTML = '<span>등록 완료</span>';
       setTimeout(() => {
         btnComment.innerHTML = original;
-        btnComment.disabled = false;
+        btnComment.disabled = reviewState !== 'done';
       }, 1600);
     } else {
       errorMsg.textContent = `댓글 등록 실패: ${result.error ?? '알 수 없는 오류'}`;
@@ -236,6 +282,12 @@ document.addEventListener('keydown', (e: KeyboardEvent): void => {
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !btnReview.disabled && !btnReview.hidden) {
     startReview();
+  }
+  // Ctrl+W — 현재 탭 닫기 (탭이 2개 이상일 때)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'w' && getTabCount() > 1) {
+    e.preventDefault();
+    const tab = getActive();
+    if (tab?.id) closeById(tab.id);
   }
 });
 

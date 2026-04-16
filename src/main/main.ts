@@ -100,7 +100,7 @@ function setTrayState(next: TrayState): void {
 
 function openReviewWindow(item?: ReviewItemSummary): void {
   if (!reviewWindow || reviewWindow.isDestroyed()) {
-    reviewWindow = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760);
+    reviewWindow = createAppWindow(WIN_DIRS, 'review/index.html', 'Pingo — AI Review', 1000, 760, true);
     reviewWindow.on('closed', () => { reviewWindow = null; });
   } else {
     reviewWindow.show();

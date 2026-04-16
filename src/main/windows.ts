@@ -13,13 +13,24 @@ export function createAppWindow(
   title: string,
   width: number,
   height: number,
+  overlayTitleBar = false,
 ): BrowserWindow {
   const win = new BrowserWindow({
     width,
     height,
     title,
     show: false,
-    backgroundColor: '#1e1e2e',
+    backgroundColor: '#1a1b2e',
+    ...(overlayTitleBar
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: {
+            color: '#1a1b2e',
+            symbolColor: '#cdd6f4',
+            height: 42,
+          },
+        }
+      : {}),
     webPreferences: {
       preload: dirs.preloadPath,
       contextIsolation: true,
