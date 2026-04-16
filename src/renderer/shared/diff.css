@@ -1,53 +1,99 @@
 /* ============================================================
-   pingo — Unified diff 뷰어
-   review 윈도우의 diff 모달에서 사용.
+   pingo — Unified diff 뷰어 (테이블 기반 줄 번호 + 통계)
    ============================================================ */
 
-.diff {
+/* ── 모달 크기 오버라이드 ───────────────────────────────── */
+.diff-modal {
+  width: min(92vw, 1100px);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.diff-modal-path {
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
-  line-height: 1.55;
-  background: #151626;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  overflow: auto;
-  max-height: 70vh;
-}
-
-.diff-line {
-  display: flex;
-  padding: 0 var(--space-3);
-  white-space: pre;
-}
-
-.diff-line.is-add  { background: var(--diff-add-bg); color: var(--diff-add-fg); }
-.diff-line.is-del  { background: var(--diff-del-bg); color: var(--diff-del-fg); }
-.diff-line.is-hunk {
-  color: var(--diff-hunk-fg);
-  background: rgba(137, 180, 250, 0.06);
+  color: var(--text-primary);
   font-weight: 600;
 }
-.diff-line.is-ctx  { color: var(--text-secondary); }
 
-/* 줄 번호 거터 (선택) */
-.diff-gutter {
-  color: var(--text-muted);
-  padding-right: var(--space-3);
-  user-select: none;
-  min-width: 3em;
+.diff-modal-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0 !important;
+  background: #12131f;
+}
+
+/* ── 통계 배지 ──────────────────────────────────────────── */
+.diff-stat-add {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--diff-add-fg, #a6e3a1);
+}
+.diff-stat-del {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--diff-del-fg, #f38ba8);
+}
+
+/* ── diff 테이블 ────────────────────────────────────────── */
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  table-layout: fixed;
+}
+
+/* 거터 (줄 번호) */
+.dc-gutter {
+  width: 44px;
+  min-width: 44px;
+  padding: 0 8px;
   text-align: right;
+  color: var(--text-muted);
+  background: #0e0f1c;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  user-select: none;
+  vertical-align: top;
+  font-size: 12px;
   opacity: 0.7;
 }
 
-/* diff 파일 헤더 */
-.diff-file-header {
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border-subtle);
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
+/* 코드 셀 */
+.dc-code {
+  padding: 0 16px;
+  white-space: pre;
+  overflow: visible;
+  vertical-align: top;
   color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+  word-break: break-all;
 }
+
+/* hunk 헤더 (@@ … @@) */
+.dc-hunk {
+  padding: 4px 16px;
+  background: rgba(137, 180, 250, 0.07);
+  color: var(--diff-hunk-fg, #89b4fa);
+  font-size: 12px;
+  border-top: 1px solid rgba(137, 180, 250, 0.15);
+  border-bottom: 1px solid rgba(137, 180, 250, 0.15);
+  user-select: none;
+}
+
+/* 행 배경 */
+.dr-add .dc-gutter { background: rgba(166, 227, 161, 0.06); }
+.dr-add .dc-code   { background: rgba(166, 227, 161, 0.08); color: var(--diff-add-fg, #a6e3a1); }
+
+.dr-del .dc-gutter { background: rgba(243, 139, 168, 0.06); }
+.dr-del .dc-code   { background: rgba(243, 139, 168, 0.08); color: var(--diff-del-fg, #f38ba8); }
+
+.dr-ctx .dc-code   { color: var(--text-secondary); }
+
+/* 행 hover */
+.dr-add:hover .dc-code { background: rgba(166, 227, 161, 0.13); }
+.dr-del:hover .dc-code { background: rgba(243, 139, 168, 0.13); }
+.dr-ctx:hover .dc-code { background: rgba(255, 255, 255, 0.03); }
