@@ -93,6 +93,19 @@ release/
 **주의사항**
 - 코드 서명 없음 — Windows Defender 또는 브라우저에서 "알 수 없는 게시자" 경고가 뜰 수 있습니다. "추가 정보 → 실행"으로 무시할 수 있습니다.
 
+### 버전 관리
+
+`package.json`의 `version` 필드가 인스톨러 파일명에 그대로 반영됩니다.
+
+```bash
+npm version patch   # 0.1.0 → 0.1.1  (버그 수정)
+npm version minor   # 0.1.0 → 0.2.0  (기능 추가)
+npm version major   # 0.1.0 → 1.0.0  (큰 변경)
+```
+
+`npm version` 명령은 `package.json` 수정 + git 커밋 + git 태그를 자동으로 처리합니다.
+직접 편집하려면 `package.json`의 `"version"` 값을 원하는 버전으로 바꾼 뒤 빌드하면 됩니다.
+
 ---
 
 ## 사용 방법
