@@ -89,6 +89,7 @@
             <p>아래 <strong>리뷰 시작</strong>을 눌러 코드 리뷰를 요청하세요.</p>
           </div>
           <article id="review-markdown" class="markdown" hidden></article>
+          <textarea id="review-edit" class="review-edit" hidden spellcheck="false"></textarea>
           <div id="review-error" class="review-error" hidden>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -109,6 +110,9 @@
       </button>
       <span class="sep"></span>
       <button id="btn-retry" class="btn btn-secondary" type="button" hidden>다시 시도</button>
+      <button id="btn-edit" class="btn btn-secondary" type="button" hidden>✎ 편집</button>
+      <button id="btn-save-edit" class="btn btn-primary" type="button" hidden>저장</button>
+      <button id="btn-cancel-edit" class="btn btn-secondary" type="button" hidden>취소</button>
       <button id="btn-comment" class="btn btn-secondary" type="button" disabled>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>

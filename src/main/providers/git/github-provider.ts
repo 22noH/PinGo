@@ -5,8 +5,11 @@ import { PROVIDER_SHORT_LABEL } from '../../../shared/constants';
 import type {
   CommentPostResult,
   ConnectionTestResult,
+  Discussion,
+  DiscussionNote,
   GitHubConfig,
   ItemChange,
+  ReviewItemAuthor,
   ReviewItemSummary,
   ReviewItemWithChanges,
 } from '../../../shared/types';
@@ -36,26 +39,36 @@ interface GitHubSearchResponse {
   items: GitHubSearchIssueItem[];
 }
 
+interface GitHubUserBrief {
+  id: number;
+  login: string;
+  avatar_url: string;
+  name?: string;
+}
+
 interface GitHubPullResponse {
   id: number;
   number: number;
   title: string;
   body: string | null;
   html_url: string;
-  user: {
-    id: number;
-    login: string;
-    avatar_url: string;
-    name?: string;
-  };
+  user: GitHubUserBrief;
   head: { ref: string; sha: string };
   base: {
     ref: string;
     sha: string;
     repo?: { id: number; full_name: string };
   };
+  requested_reviewers?: GitHubUserBrief[];
   created_at: string;
   updated_at: string;
+}
+
+interface GitHubCommentResponse {
+  id: number;
+  body: string;
+  user: GitHubUserBrief;
+  created_at: string;
 }
 
 interface GitHubFileItem {
@@ -140,14 +153,16 @@ export class GitHubProvider implements GitProvider {
     const username = this.config.username;
     if (!username) return [];
 
-    // review-requested + assignee 합집합 (중복 제거)
-    const [reviewReq, assigned] = await Promise.all([
+    // review-requested + assignee + author + mentions 합집합 (중복 제거)
+    const [reviewReq, assigned, authored, mentioned] = await Promise.all([
       this.searchIssues(`is:pr is:open review-requested:${username}`, signal),
       this.searchIssues(`is:pr is:open assignee:${username}`, signal),
+      this.searchIssues(`is:pr is:open author:${username}`, signal),
+      this.searchIssues(`is:pr is:open mentions:${username}`, signal),
     ]);
 
     const map = new Map<number, GitHubSearchIssueItem>();
-    for (const it of [...reviewReq, ...assigned]) {
+    for (const it of [...reviewReq, ...assigned, ...authored, ...mentioned]) {
       if (!it.pull_request) continue; // 혹시 issue가 섞이면 제외
       map.set(it.id, it);
     }
@@ -190,6 +205,56 @@ export class GitHubProvider implements GitProvider {
     return { ...item, changes };
   }
 
+  async fetchDiscussions(
+    item: ReviewItemSummary,
+    signal?: AbortSignal,
+  ): Promise<Discussion[]> {
+    const repoPath = item.repoFullName ?? '';
+    if (!repoPath) return [];
+    const username = this.config.username;
+    const [issueComments, reviewComments] = await Promise.all([
+      this.client
+        .get<GitHubCommentResponse[]>(
+          `/repos/${repoPath}/issues/${item.itemId}/comments`,
+          { params: { per_page: 100 }, signal },
+        )
+        .then((r) => r.data)
+        .catch((err): GitHubCommentResponse[] => {
+          log.warn(`github: issue comments fetch failed: ${String(err)}`);
+          return [];
+        }),
+      this.client
+        .get<GitHubCommentResponse[]>(
+          `/repos/${repoPath}/pulls/${item.itemId}/comments`,
+          { params: { per_page: 100 }, signal },
+        )
+        .then((r) => r.data)
+        .catch((err): GitHubCommentResponse[] => {
+          log.warn(`github: review comments fetch failed: ${String(err)}`);
+          return [];
+        }),
+    ]);
+
+    const toNote = (c: GitHubCommentResponse): DiscussionNote => ({
+      id: String(c.id),
+      author: {
+        id: c.user.id,
+        name: c.user.name ?? c.user.login,
+        username: c.user.login,
+        avatar_url: c.user.avatar_url,
+      },
+      body: c.body,
+      createdAt: c.created_at,
+      mentionsCurrentUser: username ? bodyMentions(c.body, username) : false,
+    });
+
+    // GitHub 각 comment는 독립 thread로 다룸 (review thread grouping은 추후 개선 가능)
+    return [...issueComments, ...reviewComments].map((c) => ({
+      id: String(c.id),
+      notes: [toNote(c)],
+    }));
+  }
+
   async postComment(
     item: ReviewItemSummary,
     body: string,
@@ -212,6 +277,12 @@ export class GitHubProvider implements GitProvider {
       log.error(`github: comment post failed: ${msg}`);
       return { success: false, error: msg };
     }
+  }
+
+  isCurrentUserReviewer(item: ReviewItemSummary): boolean {
+    const username = this.config.username?.toLowerCase();
+    if (!username) return false;
+    return item.reviewers.some((r) => r.username.toLowerCase() === username);
   }
 
   async testConnection(): Promise<ConnectionTestResult> {
@@ -258,6 +329,14 @@ export class GitHubProvider implements GitProvider {
     const authorName = detail?.user.name ?? search.user.login;
     // projectId는 repo DB id (detail.base.repo.id 가 있을 때만). 없으면 search.id (issue/PR id) fallback.
     const projectId = detail?.base.repo?.id ?? search.id;
+    const reviewers: ReviewItemAuthor[] = (detail?.requested_reviewers ?? []).map((r) => ({
+      id: r.id,
+      name: r.name ?? r.login,
+      username: r.login,
+      avatar_url: r.avatar_url,
+    }));
+    const myUsername = this.config.username?.toLowerCase();
+    const viewerIsReviewer = !!myUsername && reviewers.some((r) => r.username.toLowerCase() === myUsername);
     return {
       id: `${this.config.id}::github::${projectId}::${search.number}`,
       gitConfigId: this.config.id,
@@ -272,6 +351,8 @@ export class GitHubProvider implements GitProvider {
         username: search.user.login,
         avatar_url: search.user.avatar_url,
       },
+      reviewers,
+      viewerIsReviewer,
       webUrl: search.html_url,
       sourceBranch: detail?.head.ref ?? '',
       targetBranch: detail?.base.ref ?? '',
@@ -281,4 +362,12 @@ export class GitHubProvider implements GitProvider {
       updatedAt: search.updated_at,
     };
   }
+}
+
+/** `@username` 멘션 감지 — 앞뒤 단어 경계 고려 */
+function bodyMentions(body: string, username: string): boolean {
+  if (!username) return false;
+  const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|[^\\w-])@${escaped}(?![\\w-])`, 'i');
+  return re.test(body);
 }

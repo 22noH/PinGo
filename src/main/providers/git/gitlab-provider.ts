@@ -5,31 +5,49 @@ import { PROVIDER_SHORT_LABEL } from '../../../shared/constants';
 import type {
   CommentPostResult,
   ConnectionTestResult,
+  Discussion,
+  DiscussionNote,
   GitLabConfig,
   ItemChange,
+  ReviewItemAuthor,
   ReviewItemSummary,
   ReviewItemWithChanges,
 } from '../../../shared/types';
 import type { GitProvider } from './git-provider';
+
+interface GitLabUserBrief {
+  id: number;
+  name: string;
+  username: string;
+  avatar_url: string;
+}
 
 interface GitLabMRListItem {
   id: number;
   iid: number;
   title: string;
   description: string | null;
-  author: {
-    id: number;
-    name: string;
-    username: string;
-    avatar_url: string;
-  };
+  author: GitLabUserBrief;
   web_url: string;
   source_branch: string;
   target_branch: string;
-  reviewers?: Array<{ id: number }>;
+  reviewers?: GitLabUserBrief[];
   project_id: number;
   created_at: string;
   updated_at: string;
+}
+
+interface GitLabDiscussionNote {
+  id: number;
+  body: string;
+  author: GitLabUserBrief;
+  created_at: string;
+  system: boolean;
+}
+
+interface GitLabDiscussion {
+  id: string;
+  notes: GitLabDiscussionNote[];
 }
 
 interface GitLabMRChangesResponse extends GitLabMRListItem {
@@ -72,6 +90,7 @@ function classifyGitLabError(err: unknown): Error {
 export class GitLabProvider implements GitProvider {
   readonly config: GitLabConfig;
   private readonly client: AxiosInstance;
+  private cachedUsername: string | null = null;
 
   constructor(config: GitLabConfig) {
     this.config = config;
@@ -97,14 +116,15 @@ export class GitLabProvider implements GitProvider {
   }
 
   async fetchOpenItems(signal?: AbortSignal): Promise<ReviewItemSummary[]> {
+    // 사용자 필터 없음 — token이 접근 가능한 모든 open MR. "올라오면 무조건 알람".
+    // 리뷰어 지정/멘션 감지는 item.reviewers 및 note.mentionsCurrentUser 로 별도 처리.
     const res = await this.client.get<GitLabMRListItem[]>('/merge_requests', {
       params: {
         scope: 'all',
         state: 'opened',
-        reviewer_id: this.config.userId,
         order_by: 'updated_at',
         sort: 'desc',
-        per_page: 20,
+        per_page: 50,
       },
       signal,
     });
@@ -117,6 +137,40 @@ export class GitLabProvider implements GitProvider {
     );
     const base = this.normalize(res.data);
     return { ...base, changes: res.data.changes ?? [] };
+  }
+
+  async fetchDiscussions(
+    item: ReviewItemSummary,
+    signal?: AbortSignal,
+  ): Promise<Discussion[]> {
+    const res = await this.client.get<GitLabDiscussion[]>(
+      `/projects/${item.projectId}/merge_requests/${item.itemId}/discussions`,
+      { params: { per_page: 100 }, signal },
+    );
+    const username = await this.getCurrentUsername();
+    return res.data.map((d) => ({
+      id: d.id,
+      notes: d.notes
+        .filter((n) => !n.system)
+        .map((n): DiscussionNote => ({
+          id: String(n.id),
+          author: n.author,
+          body: n.body,
+          createdAt: n.created_at,
+          mentionsCurrentUser: username ? bodyMentions(n.body, username) : false,
+        })),
+    }));
+  }
+
+  private async getCurrentUsername(): Promise<string | null> {
+    if (this.cachedUsername) return this.cachedUsername;
+    try {
+      const res = await this.client.get<GitLabUserResponse>('/user');
+      this.cachedUsername = res.data.username;
+      return this.cachedUsername;
+    } catch {
+      return null;
+    }
   }
 
   async postComment(
@@ -139,6 +193,10 @@ export class GitLabProvider implements GitProvider {
     }
   }
 
+  isCurrentUserReviewer(item: ReviewItemSummary): boolean {
+    return item.reviewers.some((r) => r.id === this.config.userId);
+  }
+
   async testConnection(): Promise<ConnectionTestResult> {
     try {
       const res = await this.client.get<GitLabUserResponse>('/user');
@@ -153,6 +211,13 @@ export class GitLabProvider implements GitProvider {
   }
 
   private normalize(raw: GitLabMRListItem): ReviewItemSummary {
+    const reviewers: ReviewItemAuthor[] = (raw.reviewers ?? []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      username: r.username,
+      avatar_url: r.avatar_url,
+    }));
+    const viewerIsReviewer = reviewers.some((r) => r.id === this.config.userId);
     return {
       id: `${this.config.id}::gitlab::${raw.project_id}::${raw.iid}`,
       gitConfigId: this.config.id,
@@ -162,6 +227,8 @@ export class GitLabProvider implements GitProvider {
       title: raw.title,
       description: raw.description ?? '',
       author: raw.author,
+      reviewers,
+      viewerIsReviewer,
       webUrl: raw.web_url,
       sourceBranch: raw.source_branch,
       targetBranch: raw.target_branch,
@@ -170,5 +237,13 @@ export class GitLabProvider implements GitProvider {
       updatedAt: raw.updated_at,
     };
   }
+}
+
+/** `@username` 멘션 감지 — 앞뒤 단어 경계 고려 */
+function bodyMentions(body: string, username: string): boolean {
+  if (!username) return false;
+  const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|[^\\w-])@${escaped}(?![\\w-])`, 'i');
+  return re.test(body);
 }
 

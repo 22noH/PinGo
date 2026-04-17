@@ -4,15 +4,17 @@ import * as path from 'path';
 import log from 'electron-log';
 import type {
   ConnectionHealth,
+  ItemInteraction,
   ReviewItemSummary,
   TrayState,
 } from '../shared/types';
-import { NEW_MR_BLINK_INTERVAL_MS } from '../shared/constants';
+import { MAX_RECENT_ITEMS, NEW_MR_BLINK_INTERVAL_MS } from '../shared/constants';
 
 export interface TrayController {
   getState(): TrayState;
   setState(state: TrayState): void;
   updateRecentItems(items: ReviewItemSummary[]): void;
+  updateInteractions(interactions: Record<string, ItemInteraction>): void;
   updateLastChecked(at: Date): void;
   updateHealth(health: ConnectionHealth[]): void;
   destroy(): void;
@@ -21,7 +23,9 @@ export interface TrayController {
 interface TrayHandlers {
   onToggleNotification: () => void;
   onOpenSettings: () => void;
-  onOpenItem: (webUrl: string) => void;
+  onOpenList: () => void;
+  onOpenItem: (item: ReviewItemSummary) => void;
+  onReviewItem: (item: ReviewItemSummary) => void;
   onQuit: () => void;
 }
 
@@ -71,10 +75,26 @@ function statusLabel(
 export function createTray(iconDir: string, handlers: TrayHandlers): TrayController {
   let state: TrayState = 'ACTIVE';
   let recentItems: ReviewItemSummary[] = [];
+  let interactions: Record<string, ItemInteraction> = {};
   let lastCheckedAt: Date | null = null;
   let health: ConnectionHealth[] = [];
   let blinkTimer: NodeJS.Timeout | null = null;
   let blinkToggle = false;
+
+  const formatItemLabel = (item: ReviewItemSummary): string => {
+    const itx = interactions[item.id];
+    // prefix: ● 안 본 것 / (space) 열어본 것
+    const prefix = itx?.openedAt ? ' ' : '●';
+    // 리뷰어 태그
+    const roleTag = item.viewerIsReviewer ? '👤 ' : '   ';
+    // suffix: ✓ 리뷰 완료, 💬 댓글 등록
+    const suffixParts: string[] = [];
+    if (itx?.reviewedAt) suffixParts.push('✓');
+    if (itx?.commentedAt) suffixParts.push('💬');
+    const suffix = suffixParts.length > 0 ? `  ${suffixParts.join(' ')}` : '';
+    const body = `[${item.providerLabel}] #${item.itemId}  ${item.sourceBranch || item.title}`;
+    return `${prefix} ${roleTag}${body}${suffix}`;
+  };
 
   const loadIcon = (file: string): Electron.NativeImage => {
     const img = nativeImage.createFromPath(path.join(iconDir, file));
@@ -129,16 +149,30 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
     });
 
     items.push({ type: 'separator' });
+    items.push({
+      label: '📋 전체 목록 열기…',
+      click: (): void => handlers.onOpenList(),
+    });
+    items.push({ type: 'separator' });
     items.push({ label: '최근 MR/PR', enabled: false });
 
     if (recentItems.length === 0) {
       items.push({ label: '  (없음)', enabled: false });
     } else {
       for (const item of recentItems) {
-        const label = `  [${item.providerLabel}] #${item.itemId}  ${item.sourceBranch || item.title}`;
+        const label = formatItemLabel(item);
         items.push({
           label,
-          click: (): void => handlers.onOpenItem(item.webUrl),
+          submenu: [
+            {
+              label: '🧠 AI 리뷰',
+              click: (): void => handlers.onReviewItem(item),
+            },
+            {
+              label: '🌐 브라우저로 열기',
+              click: (): void => handlers.onOpenItem(item),
+            },
+          ],
         });
       }
     }
@@ -172,7 +206,11 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
       refreshMenu();
     },
     updateRecentItems: (items: ReviewItemSummary[]): void => {
-      recentItems = items.slice(0, 5);
+      recentItems = items.slice(0, MAX_RECENT_ITEMS);
+      refreshMenu();
+    },
+    updateInteractions: (next: Record<string, ItemInteraction>): void => {
+      interactions = next;
       refreshMenu();
     },
     updateLastChecked: (at: Date): void => {

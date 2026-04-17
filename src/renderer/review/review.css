@@ -227,6 +227,28 @@ body {
 }
 .review-idle p { line-height: 1.6; }
 
+/* HTML hidden 속성이 .review-idle/.review-error 의 display:flex 에 밀리지 않도록 */
+[hidden] { display: none !important; }
+
+.review-edit {
+  width: 100%;
+  min-height: 50vh;
+  box-sizing: border-box;
+  padding: var(--space-4);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-blue);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+.review-edit:focus {
+  box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.25);
+}
+
 #btn-scroll-bottom {
   position: absolute;
   right: var(--space-4);

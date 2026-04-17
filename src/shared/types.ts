@@ -100,6 +100,10 @@ export interface ReviewItemSummary {
   title: string;
   description: string;
   author: ReviewItemAuthor;
+  /** 현재 사용자와의 관계 감지용. 비어있으면 알 수 없음. */
+  reviewers: ReviewItemAuthor[];
+  /** 현재 사용자(config)가 이 MR/PR의 리뷰어인지 — normalize 단계에서 계산 */
+  viewerIsReviewer: boolean;
   webUrl: string;
   sourceBranch: string;
   targetBranch: string;
@@ -111,9 +115,27 @@ export interface ReviewItemSummary {
   updatedAt: string;   // ISO 8601
 }
 
-/** 리뷰/상세용 — changes 필수 */
+/** 단일 댓글 (GitLab Note / GitHub Comment 통합) */
+export interface DiscussionNote {
+  /** 글로벌하게 unique한 note id (문자열 통일) */
+  id: string;
+  author: ReviewItemAuthor;
+  body: string;
+  createdAt: string;   // ISO 8601
+  /** 현재 사용자를 @mention 했는지 — provider가 계산해서 채움 */
+  mentionsCurrentUser: boolean;
+}
+
+/** GitLab Discussion / GitHub review-thread 통합. GitHub의 일반 comment는 단일 note thread로 표현. */
+export interface Discussion {
+  id: string;
+  notes: DiscussionNote[];
+}
+
+/** 리뷰/상세용 — changes 필수, discussions는 선택적 */
 export interface ReviewItemWithChanges extends ReviewItemSummary {
   changes: ItemChange[];
+  discussions?: Discussion[];
 }
 
 /** 하위 호환 alias — 두 타입을 모두 수용해야 하는 컨텍스트에서 사용 */
@@ -142,14 +164,42 @@ export interface AppSettings {
   ai: AIConfig;                // 기본값: { type: 'claude-cli' }
   pollIntervalMs: number;
   notificationEnabled: boolean;
+  /** 내가 작성자/리뷰어/멘션인 MR의 새 댓글 알림 ON/OFF (기본 true) */
+  commentNotificationsEnabled: boolean;
   launchOnStartup: boolean;    // Windows 로그인 시 자동 시작
 }
 
+// ── 폴러 이벤트 종류 ────────────────────────────────────────
+export type ItemEventKind = 'new_item' | 'reviewer_assigned' | 'new_comments';
+
+export interface ItemEvent {
+  kind: ItemEventKind;
+  item: ReviewItemSummary;
+  /** kind === 'new_comments' 일 때만 채워짐 — 이번 tick에 감지된 새 댓글 */
+  newNotes?: DiscussionNote[];
+}
+
 // ── StoreSchema (v2) ────────────────────────────────────────
+/** 사용자 인터랙션 기록 — 트레이 목록에 "열어봤음/리뷰함/댓글등록" 상태 표시용 */
+export interface ItemInteraction {
+  /** 사용자가 MR을 열어본 시각 (트레이/토스트 클릭 — 브라우저/AI 리뷰 포함) */
+  openedAt?: string;
+  /** AI 리뷰를 성공적으로 완료한 시각 */
+  reviewedAt?: string;
+  /** 댓글을 등록한 시각 */
+  commentedAt?: string;
+}
+
 export interface StoreSchema {
   settings: AppSettings;
-  seenItemIds: string[];            // v1 seenMrIds: number[] 마이그레이션 대상
-  recentItems: ReviewItemSummary[]; // 최대 5개
+  seenItemIds: string[];                      // 신규 MR/PR 감지용 (v1 seenMrIds 마이그레이션 대상)
+  /** 내가 리뷰어로 지정된 것을 이미 알림으로 받은 item id 집합 */
+  seenReviewerItemIds: string[];
+  /** item id → 마지막으로 본 note의 ISO 타임스탬프 (새 댓글 감지용) */
+  lastSeenNoteAt: Record<string, string>;
+  /** item id → 사용자 인터랙션 기록 */
+  interactions: Record<string, ItemInteraction>;
+  recentItems: ReviewItemSummary[];           // 최대 5개
 }
 
 // ── IPC 페이로드 타입 ───────────────────────────────────────
@@ -184,6 +234,15 @@ export interface CommentPostResult {
 export interface NotificationClickPayload {
   action: NotificationAction;
   itemId: string; // ReviewItemSummary.id
+}
+
+/** 알림 이유 — 토스트 body에 표시 */
+export type NotificationReason = 'new_item' | 'reviewer_assigned' | 'new_comments';
+
+/** 목록 윈도우 초기 로드/업데이트 페이로드 */
+export interface ListLoadResult {
+  items: ReviewItemSummary[];
+  interactions: Record<string, ItemInteraction>;
 }
 
 export interface TrayStateChangedPayload {

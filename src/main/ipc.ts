@@ -16,6 +16,7 @@ import type {
   GitConnectionTestPayload,
   GitConnectionsLoadResult,
   GitConnectionsSavePayload,
+  ListLoadResult,
   OllamaModelsFetchPayload,
   OllamaModelsFetchResult,
   ReviewItem,
@@ -34,6 +35,9 @@ import {
   GIT_CONNECTIONS_SAVE,
   GIT_CONNECTION_TEST,
   ITEM_NEW,
+  LIST_LOAD,
+  LIST_OPEN_REVIEW,
+  LIST_REFRESH,
   TAB_DRAG_START,
   TAB_DRAG_END,
   TAB_DRAG_DROP,
@@ -65,22 +69,31 @@ export interface IpcDeps {
   onSettingsSaved: (settings: AppSettings) => void;
   onNotificationToggle: () => void;
   applyStartup: (enabled: boolean) => void;
+  /** 사용자 인터랙션 기록 (리뷰 완료/댓글 등록 시 호출) */
+  recordInteraction: (itemId: string, kind: 'opened' | 'reviewed' | 'commented') => void;
+  /** 목록 윈도우 데이터 공급 */
+  getListSnapshot: () => ListLoadResult;
+  /** 목록 윈도우에서 특정 item id로 AI 리뷰 열기 요청 */
+  openReviewById: (itemId: string) => void;
+  /** 즉시 폴링 요청 */
+  refreshPoller: () => void;
 }
 
 let currentRun: RunHandle | null = null;
 
 async function handleCommentPost(
-  store: Store<StoreSchema>,
+  deps: IpcDeps,
   payload: CommentPostPayload,
 ): Promise<CommentPostResult> {
-  const settings = store.get('settings');
+  const settings = deps.store.get('settings');
   const cfg = settings.gitConnections.find((c) => c.id === payload.gitConfigId);
   if (!cfg) {
     return { success: false, error: '연결을 찾을 수 없습니다' };
   }
   const provider = createGitProvider(cfg);
+  const compositeId = `${cfg.id}::${cfg.type}::${payload.projectId}::${payload.itemId}`;
   const stub: ReviewItemSummary = {
-    id: `${cfg.id}::${cfg.type}::${payload.projectId}::${payload.itemId}`,
+    id: compositeId,
     gitConfigId: cfg.id,
     providerType: cfg.type,
     providerLabel: cfg.type === 'gitlab' ? 'GL' : 'GH',
@@ -88,6 +101,8 @@ async function handleCommentPost(
     title: '',
     description: '',
     author: { id: 0, name: '', username: '', avatar_url: '' },
+    reviewers: [],
+    viewerIsReviewer: false,
     webUrl: '',
     sourceBranch: '',
     targetBranch: '',
@@ -96,7 +111,11 @@ async function handleCommentPost(
     createdAt: '',
     updatedAt: '',
   };
-  return provider.postComment(stub, payload.body);
+  const result = await provider.postComment(stub, payload.body);
+  if (result.success) {
+    deps.recordInteraction(compositeId, 'commented');
+  }
+  return result;
 }
 
 async function handleGitConnectionTest(
@@ -131,7 +150,11 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.on(REVIEW_START, (_e, payload: ReviewStartPayload) => {
     void (async (): Promise<void> => {
       const next = await runReviewStart(
-        { store: deps.store, getReviewWindow: deps.getReviewWindow },
+        {
+          store: deps.store,
+          getReviewWindow: deps.getReviewWindow,
+          recordInteraction: deps.recordInteraction,
+        },
         payload,
         currentRun,
       );
@@ -157,6 +180,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.on(NOTIFICATION_TOGGLE, () => {
     deps.onNotificationToggle();
+  });
+
+  // ── 목록 윈도우 IPC ──────────────────────────────────────
+  ipcMain.handle(LIST_LOAD, (): ListLoadResult => deps.getListSnapshot());
+
+  ipcMain.on(LIST_OPEN_REVIEW, (_e, itemId: string) => {
+    if (typeof itemId !== 'string') return;
+    deps.openReviewById(itemId);
+  });
+
+  ipcMain.on(LIST_REFRESH, () => {
+    deps.refreshPoller();
   });
 
   // ── 탭 드래그: 릴리즈 시점에 드롭 위치 판단 ─────────────────
@@ -198,7 +233,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle(
     COMMENT_POST,
     (_e, payload: CommentPostPayload): Promise<CommentPostResult> =>
-      handleCommentPost(deps.store, payload),
+      handleCommentPost(deps, payload),
   );
 
   // ── 전체 설정 저장/로드 ─────────────────────────────────
@@ -306,6 +341,9 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners(TAB_DRAG_START);
   ipcMain.removeAllListeners(TAB_DRAG_END);
   ipcMain.removeAllListeners(TAB_DRAG_DROP);
+  ipcMain.removeAllListeners(LIST_OPEN_REVIEW);
+  ipcMain.removeAllListeners(LIST_REFRESH);
+  ipcMain.removeHandler(LIST_LOAD);
   if (currentRun) {
     currentRun.abort();
     currentRun = null;

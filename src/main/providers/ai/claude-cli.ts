@@ -7,10 +7,22 @@ import type {
 } from '../../../shared/types';
 import { CLAUDE_INSTALL_URL } from '../../../shared/constants';
 import type { AIProvider, AIStreamHandle } from './ai-provider';
+import { resolveCliExecPath, needsShell } from './cli-resolver';
+
+interface StreamJsonContentBlock {
+  type: string;
+  text?: string;
+}
 
 interface StreamJsonEvent {
-  type: 'text' | 'tool_use' | 'message_stop' | 'error' | string;
+  type: string;
+  subtype?: string;
   text?: string;
+  message?: {
+    content?: StreamJsonContentBlock[];
+  };
+  result?: string;
+  is_error?: boolean;
   error?: { message?: string };
 }
 
@@ -27,18 +39,21 @@ export class ClaudeCLIProvider implements AIProvider {
     onDone: () => void,
     onError: (err: Error) => void,
   ): AIStreamHandle {
-    const execPath = this.config.execPath ?? 'claude';
-    log.info(`claude-cli: spawning ${execPath}`);
+    const execPath = resolveCliExecPath('claude', this.config.execPath);
+    const useShell = needsShell(execPath);
+    log.info(`claude-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''}`);
 
     const proc = spawn(
       execPath,
       ['-p', '--output-format', 'stream-json', '--verbose'],
-      { stdio: ['pipe', 'pipe', 'pipe'], shell: false },
+      { stdio: ['pipe', 'pipe', 'pipe'], shell: useShell },
     );
 
     let aborted = false;
     let errored = false;
     let lineBuffer = '';
+
+    let emittedAny = false;
 
     const handleLine = (line: string): void => {
       const trimmed = line.trim();
@@ -50,9 +65,37 @@ export class ClaudeCLIProvider implements AIProvider {
         log.debug(`claude-cli: non-JSON line skipped: ${trimmed.slice(0, 200)}`);
         return;
       }
+      // 1) assistant 메시지의 content 블록에서 텍스트 추출 (실제 Claude CLI stream-json 포맷)
+      if (event.type === 'assistant' && event.message?.content) {
+        for (const c of event.message.content) {
+          if (c.type === 'text' && typeof c.text === 'string' && c.text.length > 0) {
+            onChunk(c.text);
+            emittedAny = true;
+          }
+        }
+        return;
+      }
+      // 2) 레거시/단순 포맷: {type: 'text', text: '...'}
       if (event.type === 'text' && typeof event.text === 'string') {
         onChunk(event.text);
-      } else if (event.type === 'error') {
+        emittedAny = true;
+        return;
+      }
+      // 3) result 이벤트 — 에러면 여기서 전달, chunk를 못 받았다면 result.result를 마지막 청크로 보냄
+      if (event.type === 'result') {
+        if (event.is_error) {
+          errored = true;
+          onError(new Error(event.error?.message ?? event.result ?? 'Claude CLI 오류'));
+          return;
+        }
+        if (!emittedAny && typeof event.result === 'string' && event.result.length > 0) {
+          onChunk(event.result);
+          emittedAny = true;
+        }
+        return;
+      }
+      // 4) 독립 error 이벤트
+      if (event.type === 'error') {
         errored = true;
         onError(new Error(event.error?.message ?? 'Claude CLI 오류'));
       }
@@ -117,27 +160,36 @@ export class ClaudeCLIProvider implements AIProvider {
   }
 
   async testAvailability(): Promise<AIAvailabilityTestResult> {
-    const execPath = this.config.execPath ?? 'claude';
+    const execPath = resolveCliExecPath('claude', this.config.execPath);
+    const useShell = needsShell(execPath);
+    log.info(`claude-cli: testAvailability → ${execPath}${useShell ? ' (shell)' : ''}`);
     try {
       const res = spawnSync(execPath, ['--version'], {
-        timeout: 5_000,
+        timeout: 8_000,
         encoding: 'utf-8',
+        shell: useShell,
       });
       if (res.error) {
         const err = res.error as NodeJS.ErrnoException;
         if (err.code === 'ENOENT') {
           return {
             success: false,
-            error: `Claude CLI가 설치되지 않았습니다. ${CLAUDE_INSTALL_URL} 에서 설치하세요.`,
+            error:
+              `Claude CLI 실행 파일을 찾지 못했습니다 (시도 경로: ${execPath}). ` +
+              `설정에서 전체 경로를 지정하거나 ${CLAUDE_INSTALL_URL} 에서 설치하세요.`,
           };
         }
-        return { success: false, error: err.message };
+        return { success: false, error: `${err.message} (경로: ${execPath})` };
       }
       if (res.status !== 0) {
-        return { success: false, error: `exit code ${res.status ?? 'null'}` };
+        const stderr = (res.stderr || '').trim().slice(0, 200);
+        return {
+          success: false,
+          error: `exit code ${res.status ?? 'null'}${stderr ? ` — ${stderr}` : ''} (경로: ${execPath})`,
+        };
       }
       const version = (res.stdout || '').trim() || 'unknown';
-      return { success: true, version };
+      return { success: true, version: `${version} (${execPath})` };
     } catch (err) {
       return {
         success: false,

@@ -43,9 +43,14 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*",
-      "assets/**/*",
+      "dist/main/**/*",
+      "dist/shared/**/*",
+      "dist/preload.js",
       "package.json"
+    ],
+    "extraResources": [
+      { "from": "assets", "to": "assets" },
+      { "from": "dist/renderer", "to": "dist/renderer" }
     ],
     "win": {
       "target": "nsis",

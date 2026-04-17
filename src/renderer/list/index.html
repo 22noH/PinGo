@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <title>Pingo — 리뷰 목록</title>
+  <link rel="stylesheet" href="../shared/tokens.css">
+  <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="./list.css">
+</head>
+<body>
+  <div class="list-titlebar">
+    <span class="list-titlebar-text">Pingo — 리뷰 목록</span>
+  </div>
+  <main class="list-root">
+    <header class="list-header">
+      <div class="list-filters">
+        <button id="filter-all" class="filter-btn is-active" type="button">전체 (<span id="count-all">0</span>)</button>
+        <button id="filter-mine" class="filter-btn" type="button">내가 리뷰어 (<span id="count-mine">0</span>)</button>
+        <button id="filter-unseen" class="filter-btn" type="button">안 본 것 (<span id="count-unseen">0</span>)</button>
+      </div>
+      <div class="list-header-right">
+        <button id="btn-refresh" class="refresh-btn" type="button" title="즉시 새로고침">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          새로고침
+        </button>
+        <div class="list-status" id="list-status">로딩 중…</div>
+      </div>
+    </header>
+    <section class="list-body">
+      <ul class="mr-list" id="mr-list"></ul>
+      <div class="list-empty" id="list-empty" hidden>
+        <p>표시할 MR/PR이 없습니다.</p>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./list.js"></script>
+</body>
+</html>

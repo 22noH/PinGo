@@ -20,6 +20,7 @@ import type {
   AIAvailabilityTestResult,
   OllamaModelsFetchPayload,
   OllamaModelsFetchResult,
+  ListLoadResult,
 } from './shared/types';
 import {
   REVIEW_START,
@@ -45,6 +46,10 @@ import {
   TAB_DRAG_END,
   TAB_DRAG_DROP,
   TAB_DRAG_DETACH,
+  LIST_LOAD,
+  LIST_OPEN_REVIEW,
+  LIST_UPDATED,
+  LIST_REFRESH,
 } from './shared/constants';
 
 export interface ElectronAPI {
@@ -95,6 +100,12 @@ export interface ElectronAPI {
   onTrayStateChanged: (cb: (payload: TrayStateChangedPayload) => void) => () => void;
   /** Main → Renderer: 커서가 창 밖으로 나감 → 탭 분리 */
   onTabDragDetach: (cb: (tabId: string) => void) => () => void;
+
+  // 목록 윈도우 API
+  loadList: () => Promise<ListLoadResult>;
+  openReviewForItem: (itemId: string) => void;
+  refreshList: () => void;
+  onListUpdated: (cb: (payload: ListLoadResult) => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -207,6 +218,20 @@ const api: ElectronAPI = {
     const handler = (_: IpcRendererEvent, tabId: string): void => cb(tabId);
     ipcRenderer.on(TAB_DRAG_DETACH, handler);
     return (): void => { ipcRenderer.removeListener(TAB_DRAG_DETACH, handler); };
+  },
+
+  loadList: (): Promise<ListLoadResult> =>
+    ipcRenderer.invoke(LIST_LOAD) as Promise<ListLoadResult>,
+  openReviewForItem: (itemId: string): void => {
+    ipcRenderer.send(LIST_OPEN_REVIEW, itemId);
+  },
+  refreshList: (): void => {
+    ipcRenderer.send(LIST_REFRESH);
+  },
+  onListUpdated: (cb: (payload: ListLoadResult) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, payload: ListLoadResult): void => cb(payload);
+    ipcRenderer.on(LIST_UPDATED, handler);
+    return (): void => { ipcRenderer.removeListener(LIST_UPDATED, handler); };
   },
 };
 

@@ -1,12 +1,16 @@
 // main/review-runner.ts — AIProvider 기반 리뷰 실행 + 프롬프트 빌드
 import * as path from 'path';
-import type { ItemChange, ReviewItemWithChanges } from '../shared/types';
+import type { Discussion, ItemChange, ReviewItemWithChanges } from '../shared/types';
 import { MAX_CHANGES_IN_REVIEW, MAX_DIFF_CHARS } from '../shared/constants';
 import type { AIProvider, AIStreamHandle } from './providers/ai/ai-provider';
 
 const SYSTEM_PROMPT = `당신은 시니어 코드 리뷰어입니다. 아래 MR/PR 변경 사항을 분석하고
 한국어로 간결하게 리뷰하세요. 형식: 마크다운.
-리뷰 항목: 버그 위험, 성능, 보안, 가독성, 개선 제안.`;
+리뷰 항목: 버그 위험, 성능, 보안, 가독성, 개선 제안.
+기존 댓글 섹션이 있다면 각 댓글의 타당성(근거 있는 지적인지, 이미 해결됐는지, 보완이 필요한지)도 함께 평가하세요.`;
+
+const MAX_NOTES_IN_REVIEW = 30;
+const MAX_NOTE_BODY_CHARS = 400;
 
 const EXT_TO_LANG: Record<string, string> = {
   '.ts': 'typescript',
@@ -39,6 +43,41 @@ function changeStatus(c: ItemChange): string {
 
 function diffChangedLines(diff: string): number {
   return diff.split('\n').filter((l) => l.startsWith('+') || l.startsWith('-')).length;
+}
+
+function truncateNoteBody(body: string): string {
+  if (body.length <= MAX_NOTE_BODY_CHARS) return body;
+  return `${body.slice(0, MAX_NOTE_BODY_CHARS)}\n... (truncated)`;
+}
+
+function buildDiscussionsSection(discussions: Discussion[]): string {
+  const notes = discussions
+    .flatMap((d) => d.notes)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (notes.length === 0) return '';
+
+  const capped = notes.slice(-MAX_NOTES_IN_REVIEW);
+  const omittedInfo =
+    notes.length > capped.length
+      ? `\n> 오래된 댓글 ${notes.length - capped.length}개 생략 — 최신 ${capped.length}개만 표시\n`
+      : '';
+
+  const lines = capped.map((n) => {
+    const flag = n.mentionsCurrentUser ? ' **(나를 멘션)**' : '';
+    const header = `**${n.author.name}** · ${n.createdAt}${flag}`;
+    return `- ${header}\n  > ${truncateNoteBody(n.body).replace(/\n/g, '\n  > ')}`;
+  });
+
+  return [
+    '',
+    `## 기존 댓글 (${notes.length}개)`,
+    '각 댓글에 대해 타당성 검토를 함께 수행하세요 — (1) 지적이 정확한지, (2) 이번 diff로 해결됐는지, (3) 추가 조치가 필요한지.',
+    omittedInfo,
+    lines.join('\n'),
+    '',
+  ]
+    .filter((s) => s !== '')
+    .join('\n');
 }
 
 export function buildPrompt(item: ReviewItemWithChanges): string {
@@ -74,7 +113,9 @@ export function buildPrompt(item: ReviewItemWithChanges): string {
     ].join('\n');
   });
 
-  return `${header}${sections.join('\n')}`;
+  const discussionsSection = buildDiscussionsSection(item.discussions ?? []);
+
+  return `${header}${sections.join('\n')}${discussionsSection}`;
 }
 
 export interface RunHandle extends AIStreamHandle {}

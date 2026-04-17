@@ -50,6 +50,10 @@ const btnReview   = $<HTMLButtonElement>('btn-review');
 const btnAbort    = $<HTMLButtonElement>('btn-abort');
 const btnComment  = $<HTMLButtonElement>('btn-comment');
 const btnRetry    = $<HTMLButtonElement>('btn-retry');
+const btnEdit       = $<HTMLButtonElement>('btn-edit');
+const btnSaveEdit   = $<HTMLButtonElement>('btn-save-edit');
+const btnCancelEdit = $<HTMLButtonElement>('btn-cancel-edit');
+const editArea    = $<HTMLTextAreaElement>('review-edit');
 
 // ── 상태 ─────────────────────────────────────────────────────
 let reviewState: ReviewState = 'idle';
@@ -145,7 +149,14 @@ function setReviewState(next: ReviewState): void {
   btnReview.hidden = streaming;
   btnAbort.hidden  = !streaming;
   btnRetry.hidden  = !(next === 'error' || next === 'done');
+  btnEdit.hidden   = next !== 'done';
   btnComment.disabled = next !== 'done';
+  // 편집 모드 버튼들은 외부에서 명시적으로 토글
+  if (next !== 'done') {
+    btnSaveEdit.hidden = true;
+    btnCancelEdit.hidden = true;
+    editArea.hidden = true;
+  }
 
   if (next === 'idle') {
     idleBox.hidden = false;
@@ -187,8 +198,24 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
     tabChanges.set(tab.id, it.changes);
     stream.setFileList(it.changes);
     updateActive({ fileHtml: fileList.innerHTML, fileCount: fileCount.textContent ?? '0' });
-  } else if (tab.state === 'idle') {
-    btnReview.disabled = false;
+    // 파일 목록 도착 완료 → AI 응답 대기 구간 안내 (첫 chunk까지 공백 방지)
+    if (reviewState === 'loading') {
+      markdownEl.innerHTML =
+        '<div class="row text-secondary"><span class="spinner"></span>' +
+        `<span>파일 ${it.changes.length}개 분석 완료. AI 응답 대기 중…</span></div>`;
+    }
+  } else {
+    // summary만 들어온 경우 = 트레이/토스트에서 MR 열기. 이전 세션의 error/done 상태가
+    // 남아있으면 리셋(진행 중인 스트리밍은 보존).
+    if (tab.state === 'error' || tab.state === 'done') {
+      updateActive({ state: 'idle', savedHtml: '', errorMsg: '' });
+      markdownEl.innerHTML = '';
+      errorMsg.textContent = '';
+      setReviewState('idle');
+    }
+    if (tab.state === 'idle') {
+      btnReview.disabled = false;
+    }
   }
 });
 
@@ -244,6 +271,38 @@ btnAbort.addEventListener('click', () => {
 });
 
 btnComment.addEventListener('click', () => { void postComment(); });
+
+// ── 편집 모드 ───────────────────────────────────────────────
+function enterEditMode(): void {
+  editArea.value = stream.getFullText();
+  editArea.hidden = false;
+  markdownEl.hidden = true;
+  btnEdit.hidden = true;
+  btnSaveEdit.hidden = false;
+  btnCancelEdit.hidden = false;
+  btnComment.disabled = true;
+  btnRetry.hidden = true;
+  editArea.focus();
+}
+
+function exitEditMode(): void {
+  editArea.hidden = true;
+  markdownEl.hidden = false;
+  btnEdit.hidden = false;
+  btnSaveEdit.hidden = true;
+  btnCancelEdit.hidden = true;
+  btnComment.disabled = false;
+  btnRetry.hidden = false;
+}
+
+btnEdit.addEventListener('click', enterEditMode);
+btnCancelEdit.addEventListener('click', exitEditMode);
+btnSaveEdit.addEventListener('click', () => {
+  const edited = editArea.value;
+  stream.setFullText(edited);
+  updateActive({ savedHtml: markdownEl.innerHTML });
+  exitEditMode();
+});
 
 async function postComment(): Promise<void> {
   const tab = getActive();

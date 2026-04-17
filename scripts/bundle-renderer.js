@@ -30,6 +30,10 @@ const ROOT = path.join(__dirname, '..');
       in: path.join(ROOT, 'src/renderer/review/review.ts'),
       out: path.join(ROOT, 'dist/renderer/review/review.js'),
     },
+    {
+      in: path.join(ROOT, 'src/renderer/list/list.ts'),
+      out: path.join(ROOT, 'dist/renderer/list/list.js'),
+    },
   ];
 
   for (const { in: entryPoint, out: outfile } of rendererEntries) {

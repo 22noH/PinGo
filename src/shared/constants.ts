@@ -49,6 +49,15 @@ export const TAB_DRAG_DETACH = 'review:tab-drag-detach' as const;
 
 export const OLLAMA_MODELS_FETCH = 'ollama:models:fetch' as const;
 
+/** 목록 윈도우 — 현재 open MR + interaction 조회 */
+export const LIST_LOAD = 'list:load' as const;
+/** 목록 윈도우 → main: 특정 아이템에 대한 AI 리뷰 시작 요청 */
+export const LIST_OPEN_REVIEW = 'list:open-review' as const;
+/** 목록 업데이트 브로드캐스트 (poller tick 이후 main → list 윈도우) */
+export const LIST_UPDATED = 'list:updated' as const;
+/** 목록 윈도우 → main: 즉시 폴링 요청 */
+export const LIST_REFRESH = 'list:refresh' as const;
+
 // ── 채널명 타입 유니온 ──────────────────────────────────────
 export type MainToRendererChannel =
   | typeof REVIEW_CHUNK
@@ -77,7 +86,7 @@ export type RendererToMainChannel =
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 export const MIN_POLL_INTERVAL_MS = 10_000;
 export const MAX_SEEN_ITEM_IDS = 200;
-export const MAX_RECENT_ITEMS = 5;
+export const MAX_RECENT_ITEMS = 20;
 export const MAX_CHANGES_IN_REVIEW = 10;
 export const MAX_DIFF_CHARS = 4000;
 export const NEW_MR_BLINK_INTERVAL_MS = 800;

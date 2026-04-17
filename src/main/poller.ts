@@ -3,26 +3,42 @@ import axios from 'axios';
 import log from 'electron-log';
 import type {
   ConnectionHealth,
+  DiscussionNote,
+  ItemEvent,
   ReviewItemSummary,
 } from '../shared/types';
 import { PROVIDER_DISPLAY_NAME } from '../shared/constants';
 import type { GitProvider } from './providers/git/git-provider';
 
-export type ItemsFoundCallback = (newItems: ReviewItemSummary[]) => void;
+export type EventsFoundCallback = (events: ItemEvent[]) => void;
 export type PollErrorCallback = (error: Error) => void;
 export type PollTickCallback = (at: Date, health: ConnectionHealth[]) => void;
+/** 매 tick 마다 현재 열려있는 아이템 전체 목록 (updatedAt desc 정렬) */
+export type OpenItemsCallback = (items: ReviewItemSummary[]) => void;
+
+export interface PollerSeenState {
+  /** 이미 본 MR/PR id 집합 (신규 MR 감지) */
+  items: Set<string>;
+  /** 이미 "리뷰어 지정"을 알림받은 MR/PR id 집합 */
+  reviewerAssigned: Set<string>;
+  /** item id → 마지막으로 본 note의 ISO 타임스탬프 */
+  lastSeenNoteAt: Map<string, string>;
+}
 
 export interface PollerController {
   start(): void;
   stop(): void;
+  /** 사용자 요청에 의한 즉시 폴링 (timer는 건드리지 않음) */
+  refresh(): void;
   /** providers 교체 + interval 갱신 */
   replace(providers: GitProvider[], pollIntervalMs: number): void;
 }
 
 export interface PollerCallbacks {
-  onFound: ItemsFoundCallback;
+  onEvents: EventsFoundCallback;
   onError: PollErrorCallback;
   onTick?: PollTickCallback;
+  onOpenItems?: OpenItemsCallback;
 }
 
 function connectionLabel(provider: GitProvider): string {
@@ -31,11 +47,26 @@ function connectionLabel(provider: GitProvider): string {
   return PROVIDER_DISPLAY_NAME[cfg.type];
 }
 
+function isNoteRelevant(
+  note: DiscussionNote,
+  item: ReviewItemSummary,
+  provider: GitProvider,
+): boolean {
+  // 내가 단 댓글은 알림 대상 아님
+  const cfg = provider.config;
+  if (cfg.type === 'gitlab' && note.author.id === cfg.userId) return false;
+  if (cfg.type === 'github' && note.author.username.toLowerCase() === cfg.username.toLowerCase())
+    return false;
+  void item;
+  // 멘션된 댓글만 알림 대상 (일반 댓글은 스킵)
+  return note.mentionsCurrentUser;
+}
+
 export function createPoller(
   initialProviders: GitProvider[],
   initialPollIntervalMs: number,
-  seenIds: Set<string>,
-  { onFound, onError, onTick }: PollerCallbacks,
+  seen: PollerSeenState,
+  { onEvents, onError, onTick, onOpenItems }: PollerCallbacks,
 ): PollerController {
   let providers: GitProvider[] = [...initialProviders];
   let pollIntervalMs = initialPollIntervalMs;
@@ -49,6 +80,63 @@ export function createPoller(
       abortController.abort();
       abortController = null;
     }
+  };
+
+  const providerById = (id: string): GitProvider | undefined =>
+    providers.find((p) => p.config.id === id);
+
+  const detectCommentEvents = async (
+    items: ReviewItemSummary[],
+    signal: AbortSignal,
+  ): Promise<ItemEvent[]> => {
+    // 각 item의 updatedAt이 lastSeenNoteAt 이후인 것만 discussions 조회 (비용 절감)
+    const candidates = items.filter((item) => {
+      const last = seen.lastSeenNoteAt.get(item.id);
+      if (!last) return true; // 한 번도 조회한 적 없음 → 이번 tick에서 seed (이벤트는 발생 안함)
+      return item.updatedAt > last;
+    });
+    if (candidates.length === 0) return [];
+
+    const results = await Promise.allSettled(
+      candidates.map(async (item): Promise<ItemEvent | null> => {
+        const provider = providerById(item.gitConfigId);
+        if (!provider) return null;
+        const discussions = await provider.fetchDiscussions(item, signal);
+        const allNotes = discussions
+          .flatMap((d) => d.notes)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        if (allNotes.length === 0) return null;
+
+        const newest = allNotes[allNotes.length - 1].createdAt;
+        const lastSeen = seen.lastSeenNoteAt.get(item.id);
+
+        if (!lastSeen) {
+          // 첫 조회 → seed 만 하고 이벤트 발생 안함 (기존 댓글을 "새 댓글"로 오인 방지)
+          seen.lastSeenNoteAt.set(item.id, newest);
+          return null;
+        }
+
+        const newNotes = allNotes.filter(
+          (n) => n.createdAt > lastSeen && isNoteRelevant(n, item, provider),
+        );
+        if (newNotes.length === 0) {
+          // 타임스탬프는 갱신 (내가 단 댓글 등 무시한 것 반영)
+          seen.lastSeenNoteAt.set(item.id, newest);
+          return null;
+        }
+        seen.lastSeenNoteAt.set(item.id, newest);
+        return { kind: 'new_comments', item, newNotes };
+      }),
+    );
+
+    const events: ItemEvent[] = [];
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) events.push(r.value);
+      else if (r.status === 'rejected') {
+        log.warn(`poller: discussion fetch failed: ${String(r.reason)}`);
+      }
+    }
+    return events;
   };
 
   const tick = async (): Promise<void> => {
@@ -70,10 +158,17 @@ export function createPoller(
         providers.map((p) => p.fetchOpenItems(mySignal)),
       );
 
+      // abort된 tick은 recentItems 갱신/이벤트 방출에서 제외 (빈 데이터로 overwrite 방지)
+      if (mySignal.aborted) {
+        log.debug('poller: tick aborted, skipping events/update');
+        return;
+      }
+
       const now = new Date();
       const health: ConnectionHealth[] = [];
       const collected: ReviewItemSummary[] = [];
       let anyError = false;
+      let anyFulfilled = false;
 
       for (let i = 0; i < providers.length; i += 1) {
         const provider = providers[i];
@@ -88,10 +183,10 @@ export function createPoller(
         if (result.status === 'fulfilled') {
           collected.push(...result.value);
           health.push({ ...base, ok: true });
+          anyFulfilled = true;
         } else {
           const err = result.reason;
           if (mySignal.aborted || (axios.isCancel && axios.isCancel(err))) {
-            // 요청 취소는 에러로 보지 않음
             health.push({ ...base, ok: true });
           } else {
             anyError = true;
@@ -107,17 +202,57 @@ export function createPoller(
 
       onTick?.(now, health);
 
-      // 중복 제거 (id 기준)
+      // 중복 제거 (id 기준) — 같은 MR이 author+reviewer 양쪽에서 돌아올 수 있음
       const uniq = new Map<string, ReviewItemSummary>();
       for (const item of collected) uniq.set(item.id, item);
+      const unique = Array.from(uniq.values()).sort((a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt),
+      );
 
-      const newItems = Array.from(uniq.values()).filter((m) => !seenIds.has(m.id));
-      if (newItems.length > 0) {
-        log.info(`poller: ${newItems.length} new item(s) detected`);
-        onFound(newItems);
+      // 전 provider가 실패한 경우 trayRecent 유지 (일시적 네트워크 이슈로 리스트가 비워지지 않도록)
+      if (anyFulfilled) {
+        onOpenItems?.(unique);
+      }
+
+      const events: ItemEvent[] = [];
+
+      // 1) 신규 MR/PR 감지 (기존 로직)
+      for (const item of unique) {
+        if (!seen.items.has(item.id)) {
+          events.push({ kind: 'new_item', item });
+        }
+      }
+
+      // 2) 리뷰어 지정 감지 (기존 item이면서 내가 리뷰어에 들어옴)
+      for (const item of unique) {
+        const provider = providerById(item.gitConfigId);
+        if (!provider) continue;
+        const iAmReviewer = provider.isCurrentUserReviewer(item);
+        if (iAmReviewer) {
+          if (!seen.reviewerAssigned.has(item.id) && seen.items.has(item.id)) {
+            events.push({ kind: 'reviewer_assigned', item });
+          }
+          seen.reviewerAssigned.add(item.id);
+        } else {
+          // 리뷰어에서 빠지면 재지정 시 다시 알림 받을 수 있도록 제거
+          seen.reviewerAssigned.delete(item.id);
+        }
+      }
+
+      // 3) 새 댓글 감지 (비동기, item 상관없이 내가 관련된 모든 MR)
+      const commentEvents = await detectCommentEvents(unique, mySignal);
+      events.push(...commentEvents);
+
+      if (events.length > 0) {
+        log.info(
+          `poller: events detected — new=${events.filter((e) => e.kind === 'new_item').length}, ` +
+            `reviewer=${events.filter((e) => e.kind === 'reviewer_assigned').length}, ` +
+            `comments=${events.filter((e) => e.kind === 'new_comments').length}`,
+        );
+        onEvents(events);
       } else {
         log.debug(
-          `poller: no new items (total open: ${uniq.size}, providers: ${providers.length}, anyErr: ${anyError})`,
+          `poller: no events (total open: ${unique.length}, providers: ${providers.length}, anyErr: ${anyError})`,
         );
       }
     } finally {
@@ -151,6 +286,10 @@ export function createPoller(
         timer = null;
       }
     },
+    refresh: (): void => {
+      log.info('poller: manual refresh');
+      void tick();
+    },
     replace: (nextProviders: GitProvider[], nextInterval: number): void => {
       log.info(
         `poller: replace (providers=${nextProviders.length}, interval=${nextInterval}ms)`,
@@ -164,4 +303,3 @@ export function createPoller(
     },
   };
 }
-

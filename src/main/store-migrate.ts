@@ -18,6 +18,7 @@ export const DEFAULT_V2_SETTINGS: AppSettings = {
   ai: DEFAULT_AI,
   pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
   notificationEnabled: true,
+  commentNotificationsEnabled: true,
   launchOnStartup: false,
 };
 
@@ -44,6 +45,30 @@ export function isV1Settings(raw: unknown): raw is V1AppSettings {
  *   - recentMrs 는 필수 필드(`gitConfigId/providerType/providerLabel`) 없음 → `[]` 로 초기화
  *   - 재알림 위험은 main.ts 부트스트랩에서 silent pre-seed 로 완화
  */
+/**
+ * v2 내에서 추가된 신규 필드를 결손된 저장소에 채워넣는다 (in-place).
+ * 업그레이드 경로에서 AppSettings가 이미 저장되어 있지만 새 필드(commentNotificationsEnabled 등)가
+ * 없는 경우, defaults로 보충한다. StoreSchema의 새 top-level 필드도 동일 정책.
+ */
+function backfillV2Fields(store: Store<StoreSchema>): void {
+  const s = store.get('settings') as Partial<AppSettings> | undefined;
+  if (s && typeof s === 'object' && !('commentNotificationsEnabled' in s)) {
+    store.set('settings', { ...DEFAULT_V2_SETTINGS, ...s, commentNotificationsEnabled: true });
+  }
+  const rawReviewerIds = store.get('seenReviewerItemIds') as unknown;
+  if (!Array.isArray(rawReviewerIds)) {
+    store.set('seenReviewerItemIds', []);
+  }
+  const rawNotes = store.get('lastSeenNoteAt') as unknown;
+  if (!rawNotes || typeof rawNotes !== 'object' || Array.isArray(rawNotes)) {
+    store.set('lastSeenNoteAt', {});
+  }
+  const rawInteractions = store.get('interactions') as unknown;
+  if (!rawInteractions || typeof rawInteractions !== 'object' || Array.isArray(rawInteractions)) {
+    store.set('interactions', {});
+  }
+}
+
 export function migrateStoreV1ToV2(store: Store<StoreSchema>): void {
   const rawSettings = store.get('settings') as unknown;
 
@@ -52,6 +77,7 @@ export function migrateStoreV1ToV2(store: Store<StoreSchema>): void {
     if (rawSettings === undefined) {
       store.set('settings', DEFAULT_V2_SETTINGS);
     }
+    backfillV2Fields(store);
     return;
   }
 
@@ -74,11 +100,15 @@ export function migrateStoreV1ToV2(store: Store<StoreSchema>): void {
     ai: DEFAULT_AI,
     pollIntervalMs: v1.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     notificationEnabled: v1.notificationEnabled ?? true,
+    commentNotificationsEnabled: true,
     launchOnStartup: false,
   };
 
   store.set('settings', v2Settings);
   store.set('seenItemIds', []);   // 복합 키 체계로 재시작
+  store.set('seenReviewerItemIds', []);
+  store.set('lastSeenNoteAt', {});
+  store.set('interactions', {});
   store.set('recentItems', []);
   store.delete('seenMrIds' as keyof StoreSchema);
   store.delete('recentMrs' as keyof StoreSchema);

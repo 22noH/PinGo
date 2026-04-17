@@ -7,6 +7,7 @@ import type {
 } from '../../../shared/types';
 import { CODEX_INSTALL_URL } from '../../../shared/constants';
 import type { AIProvider, AIStreamHandle } from './ai-provider';
+import { resolveCliExecPath, needsShell } from './cli-resolver';
 
 /**
  * Codex CLI (`codex -p <prompt>`) 는 stdout으로 평문 텍스트를 스트리밍.
@@ -25,12 +26,13 @@ export class CodexCLIProvider implements AIProvider {
     onDone: () => void,
     onError: (err: Error) => void,
   ): AIStreamHandle {
-    const execPath = this.config.execPath ?? 'codex';
-    log.info(`codex-cli: spawning ${execPath}`);
+    const execPath = resolveCliExecPath('codex', this.config.execPath);
+    const useShell = needsShell(execPath);
+    log.info(`codex-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''}`);
 
     const proc = spawn(execPath, ['-p', prompt], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: false,
+      shell: useShell,
     });
 
     let aborted = false;
@@ -80,27 +82,36 @@ export class CodexCLIProvider implements AIProvider {
   }
 
   async testAvailability(): Promise<AIAvailabilityTestResult> {
-    const execPath = this.config.execPath ?? 'codex';
+    const execPath = resolveCliExecPath('codex', this.config.execPath);
+    const useShell = needsShell(execPath);
+    log.info(`codex-cli: testAvailability → ${execPath}${useShell ? ' (shell)' : ''}`);
     try {
       const res = spawnSync(execPath, ['--version'], {
-        timeout: 5_000,
+        timeout: 8_000,
         encoding: 'utf-8',
+        shell: useShell,
       });
       if (res.error) {
         const err = res.error as NodeJS.ErrnoException;
         if (err.code === 'ENOENT') {
           return {
             success: false,
-            error: `Codex CLI가 설치되지 않았습니다. ${CODEX_INSTALL_URL}`,
+            error:
+              `Codex CLI 실행 파일을 찾지 못했습니다 (시도 경로: ${execPath}). ` +
+              `설정에서 전체 경로를 지정하거나 ${CODEX_INSTALL_URL} 을 참고하세요.`,
           };
         }
-        return { success: false, error: err.message };
+        return { success: false, error: `${err.message} (경로: ${execPath})` };
       }
       if (res.status !== 0) {
-        return { success: false, error: `exit code ${res.status ?? 'null'}` };
+        const stderr = (res.stderr || '').trim().slice(0, 200);
+        return {
+          success: false,
+          error: `exit code ${res.status ?? 'null'}${stderr ? ` — ${stderr}` : ''} (경로: ${execPath})`,
+        };
       }
       const version = (res.stdout || '').trim() || 'unknown';
-      return { success: true, version };
+      return { success: true, version: `${version} (${execPath})` };
     } catch (err) {
       return {
         success: false,

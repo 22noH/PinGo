@@ -5,6 +5,8 @@ import log, { LogMessage } from 'electron-log';
 import type {
   AppSettings,
   ConnectionHealth,
+  ItemEvent,
+  ItemInteraction,
   ReviewItemSummary,
   ReviewItemWithChanges,
   TrayState,
@@ -13,13 +15,14 @@ import type {
 // import { createMockTestItem, createMockTestItem2 } from './mock-test-item';
 import {
   ITEM_NEW,
+  LIST_UPDATED,
   MAX_RECENT_ITEMS,
   MAX_SEEN_ITEM_IDS,
   TRAY_STATE_CHANGED,
 } from '../shared/constants';
 import { createStore } from './store';
 import { createTray, TrayController } from './tray';
-import { createPoller, PollerController } from './poller';
+import { createPoller, PollerController, PollerSeenState } from './poller';
 import { sendMrNotification } from './notifier';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { createGitProvider, GitProvider } from './providers/git/git-provider';
@@ -64,8 +67,10 @@ let tray: TrayController | null = null;
 let poller: PollerController | null = null;
 let reviewWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
+let listWindow: BrowserWindow | null = null;
 let lastCheckedAt: Date | null = null;
 let lastHealth: ConnectionHealth[] = [];
+let lastOpenItems: ReviewItemSummary[] = [];
 
 function buildProviders(settings: AppSettings): GitProvider[] {
   return settings.gitConnections
@@ -129,53 +134,137 @@ function openSettingsWindow(): void {
   }
 }
 
-function rememberNewItems(
-  store: ReturnType<typeof createStore>,
-  newItems: ReviewItemSummary[],
-): void {
-  const seen = new Set<string>(store.get('seenItemIds'));
-  for (const item of newItems) seen.add(item.id);
-  store.set('seenItemIds', Array.from(seen).slice(-MAX_SEEN_ITEM_IDS));
-
-  const prior = store.get('recentItems');
-  const merged = [...newItems, ...prior].slice(0, MAX_RECENT_ITEMS);
-  store.set('recentItems', merged);
-  tray?.updateRecentItems(merged);
+function openListWindow(): void {
+  if (!listWindow || listWindow.isDestroyed()) {
+    listWindow = createAppWindow(WIN_DIRS, 'list/index.html', 'Pingo — 리뷰 목록', 900, 680, true);
+    listWindow.on('closed', () => { listWindow = null; });
+  } else {
+    listWindow.show();
+    listWindow.focus();
+  }
 }
 
-function handleNewItems(
-  store: ReturnType<typeof createStore>,
-  newItems: ReviewItemSummary[],
-): void {
-  rememberNewItems(store, newItems);
-  const { notificationEnabled } = store.get('settings');
-  if (!notificationEnabled) {
-    log.info('main: notifications muted, skipping toast');
-    return;
-  }
-  for (const item of newItems) {
-    sendMrNotification(item, (action, clicked) => {
-      if (action === 'open') {
-        void shell.openExternal(clicked.webUrl);
-      } else {
-        openReviewWindow(clicked);
+function broadcastListUpdate(store: ReturnType<typeof createStore>): void {
+  if (!listWindow || listWindow.isDestroyed()) return;
+  const payload = {
+    items: lastOpenItems,
+    interactions: store.get('interactions') ?? {},
+  };
+  if (!listWindow.webContents.isLoading()) {
+    listWindow.webContents.send(LIST_UPDATED, payload);
+  } else {
+    listWindow.webContents.once('did-finish-load', () => {
+      if (listWindow && !listWindow.isDestroyed()) {
+        listWindow.webContents.send(LIST_UPDATED, payload);
       }
     });
   }
-  setTrayState('NEW_MR');
+}
+
+function persistSeenState(
+  store: ReturnType<typeof createStore>,
+  seen: PollerSeenState,
+): void {
+  store.set('seenItemIds', Array.from(seen.items).slice(-MAX_SEEN_ITEM_IDS));
+  store.set('seenReviewerItemIds', Array.from(seen.reviewerAssigned).slice(-MAX_SEEN_ITEM_IDS));
+  store.set('lastSeenNoteAt', Object.fromEntries(seen.lastSeenNoteAt));
+}
+
+function updateRecentFromOpenItems(
+  store: ReturnType<typeof createStore>,
+  openItems: ReviewItemSummary[],
+): void {
+  // 안 본 MR 우선 → 그 다음 updatedAt desc. 새 MR이 캡에서 밀려나지 않도록.
+  const interactions = store.get('interactions') ?? {};
+  const isUnseen = (it: ReviewItemSummary): boolean => !interactions[it.id]?.openedAt;
+  const sorted = [...openItems].sort((a, b) => {
+    const aUnseen = isUnseen(a);
+    const bUnseen = isUnseen(b);
+    if (aUnseen !== bUnseen) return aUnseen ? -1 : 1;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+  const recent = sorted.slice(0, MAX_RECENT_ITEMS);
+  store.set('recentItems', recent);
+  tray?.updateRecentItems(recent);
+  // 전체 open list 도 따로 보관 — 목록 윈도우에서 사용
+  lastOpenItems = sorted;
+  broadcastListUpdate(store);
+}
+
+type InteractionKind = 'opened' | 'reviewed' | 'commented';
+
+function recordInteraction(
+  store: ReturnType<typeof createStore>,
+  itemId: string,
+  kind: InteractionKind,
+): void {
+  const now = new Date().toISOString();
+  const all = { ...store.get('interactions') };
+  const cur: ItemInteraction = all[itemId] ?? {};
+  const next: ItemInteraction =
+    kind === 'opened'    ? { ...cur, openedAt: now } :
+    kind === 'reviewed'  ? { ...cur, openedAt: cur.openedAt ?? now, reviewedAt: now } :
+                           { ...cur, openedAt: cur.openedAt ?? now, commentedAt: now };
+  all[itemId] = next;
+  store.set('interactions', all);
+  tray?.updateInteractions(all);
+  broadcastListUpdate(store);
+}
+
+function handleEvents(
+  store: ReturnType<typeof createStore>,
+  seen: PollerSeenState,
+  events: ItemEvent[],
+): void {
+  // seen.items 갱신 (이번 tick에 본 것들)
+  for (const ev of events) {
+    seen.items.add(ev.item.id);
+  }
+
+  persistSeenState(store, seen);
+
+  const settings = store.get('settings');
+  if (!settings.notificationEnabled) {
+    log.info('main: notifications muted, skipping toasts');
+    return;
+  }
+
+  let anyToastShown = false;
+  for (const ev of events) {
+    if (ev.kind === 'new_comments' && !settings.commentNotificationsEnabled) {
+      log.debug(`main: comment notifications disabled, skipping ${ev.item.id}`);
+      continue;
+    }
+    sendMrNotification(
+      ev.item,
+      { reason: ev.kind, newNotes: ev.newNotes },
+      (action, clicked) => {
+        recordInteraction(store, clicked.id, 'opened');
+        if (action === 'open') {
+          void shell.openExternal(clicked.webUrl);
+        } else {
+          openReviewWindow(clicked);
+        }
+      },
+    );
+    anyToastShown = true;
+  }
+  if (anyToastShown) setTrayState('NEW_MR');
 }
 
 function reconfigurePoller(
   store: ReturnType<typeof createStore>,
   settings: AppSettings,
-  seenIds: Set<string>,
+  seen: PollerSeenState,
 ): void {
   const providers = buildProviders(settings);
   if (!poller) {
-    poller = createPoller(providers, settings.pollIntervalMs, seenIds, {
-      onFound: (newItems: ReviewItemSummary[]): void => {
-        for (const item of newItems) seenIds.add(item.id);
-        handleNewItems(store, newItems);
+    poller = createPoller(providers, settings.pollIntervalMs, seen, {
+      onEvents: (events: ItemEvent[]): void => {
+        handleEvents(store, seen, events);
+      },
+      onOpenItems: (openItems: ReviewItemSummary[]): void => {
+        updateRecentFromOpenItems(store, openItems);
       },
       onError: (err: Error): void => {
         log.error(`main: poll error — ${err.message}`);
@@ -203,7 +292,13 @@ function reconfigurePoller(
 function bootstrap(): void {
   const store = createStore();
   const settings = store.get('settings');
-  const seenIds = new Set<string>(store.get('seenItemIds'));
+  const seen: PollerSeenState = {
+    items: new Set<string>(store.get('seenItemIds')),
+    reviewerAssigned: new Set<string>(store.get('seenReviewerItemIds')),
+    lastSeenNoteAt: new Map<string, string>(
+      Object.entries(store.get('lastSeenNoteAt') ?? {}),
+    ),
+  };
   tray = createTray(ASSETS_DIR, {
     onToggleNotification: (): void => {
       const s = store.get('settings');
@@ -212,8 +307,14 @@ function bootstrap(): void {
       setTrayState(next.notificationEnabled ? 'ACTIVE' : 'MUTED');
     },
     onOpenSettings: openSettingsWindow,
-    onOpenItem: (url: string): void => {
-      void shell.openExternal(url);
+    onOpenList: openListWindow,
+    onOpenItem: (item: ReviewItemSummary): void => {
+      recordInteraction(store, item.id, 'opened');
+      void shell.openExternal(item.webUrl);
+    },
+    onReviewItem: (item: ReviewItemSummary): void => {
+      recordInteraction(store, item.id, 'opened');
+      openReviewWindow(item);
     },
     // TEST: 트레이 메뉴에서 목업 리뷰 테스트 시 아래 주석 해제 + TrayHandlers에 콜백 복구
     // onOpenTestReview:  () => openReviewWindow(createMockTestItem()),
@@ -224,6 +325,7 @@ function bootstrap(): void {
   });
 
   tray.updateRecentItems(store.get('recentItems'));
+  tray.updateInteractions(store.get('interactions') ?? {});
   setTrayState(settings.notificationEnabled ? 'ACTIVE' : 'MUTED');
 
   registerIpcHandlers({
@@ -241,8 +343,8 @@ function bootstrap(): void {
     rebuildProviders: (): void => {
       // 설정 저장 시 providers 재구성 — 신규 연결은 silent pre-seed 먼저 실행 후 poller restart
       void (async (): Promise<void> => {
-        await silentPreSeed(store, seenIds, buildProviders(store.get('settings')));
-        reconfigurePoller(store, store.get('settings'), seenIds);
+        await silentPreSeed(store, seen, buildProviders(store.get('settings')));
+        reconfigurePoller(store, store.get('settings'), seen);
       })();
     },
     rebuildAIProvider: (): void => {
@@ -259,15 +361,34 @@ function bootstrap(): void {
       store.set('settings', next);
       setTrayState(next.notificationEnabled ? 'ACTIVE' : 'MUTED');
     },
+    recordInteraction: (itemId, kind): void => {
+      recordInteraction(store, itemId, kind);
+    },
+    getListSnapshot: () => ({
+      items: lastOpenItems,
+      interactions: store.get('interactions') ?? {},
+    }),
+    openReviewById: (itemId: string): void => {
+      const target = lastOpenItems.find((it) => it.id === itemId);
+      if (!target) {
+        log.warn(`main: openReviewById — item not found: ${itemId}`);
+        return;
+      }
+      recordInteraction(store, itemId, 'opened');
+      openReviewWindow(target);
+    },
+    refreshPoller: (): void => {
+      poller?.refresh();
+    },
   });
 
   // seenItemIds 가 [] 이면 silent pre-seed 후 poller 시작
   void (async (): Promise<void> => {
     const preexistingSeen = store.get('seenItemIds').length;
     if (preexistingSeen === 0 && settings.gitConnections.length > 0) {
-      await silentPreSeed(store, seenIds, buildProviders(settings));
+      await silentPreSeed(store, seen, buildProviders(settings));
     }
-    reconfigurePoller(store, store.get('settings'), seenIds);
+    reconfigurePoller(store, store.get('settings'), seen);
   })();
 
   if (settings.gitConnections.length === 0) {

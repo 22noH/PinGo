@@ -48,6 +48,13 @@ export class StreamController {
     return this.buffer;
   }
 
+  /** 사용자가 수정한 내용으로 버퍼를 교체하고 markdown 재렌더 */
+  setFullText(text: string): void {
+    this.buffer = text;
+    this.render(true);
+    this.removeCursor();
+  }
+
   /** ReviewItemWithChanges 수신 시 파일 목록 패널 렌더 */
   setFileList(changes: ItemChange[]): void {
     this.view.fileList.innerHTML = '';

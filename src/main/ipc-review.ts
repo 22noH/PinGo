@@ -23,6 +23,7 @@ import { buildPrompt, runReview, RunHandle } from './review-runner';
 export interface ReviewRunnerContext {
   store: Store<StoreSchema>;
   getReviewWindow: () => BrowserWindow | null;
+  recordInteraction: (itemId: string, kind: 'opened' | 'reviewed' | 'commented') => void;
 }
 
 function sendToReview(
@@ -72,7 +73,14 @@ export async function runReviewStart(
 
   let current: RunHandle | null = null;
   try {
-    const full = await gitProvider.fetchChanges(item);
+    const [full, discussions] = await Promise.all([
+      gitProvider.fetchChanges(item),
+      gitProvider.fetchDiscussions(item).catch((err: unknown): [] => {
+        log.warn(`ipc-review: fetchDiscussions failed (ignored): ${String(err)}`);
+        return [];
+      }),
+    ]);
+    full.discussions = discussions;
     sendToReview(win, ITEM_NEW, full);
 
     const aiProvider = createAIProvider(settings.ai);
@@ -85,6 +93,7 @@ export async function runReviewStart(
         sendToReview(win, REVIEW_CHUNK, p);
       },
       (): void => {
+        ctx.recordInteraction(item.id, 'reviewed');
         sendToReview(win, REVIEW_DONE);
       },
       (err: Error): void => {

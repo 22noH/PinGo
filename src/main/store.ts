@@ -18,6 +18,9 @@ export function createStore(): Store<StoreSchema> {
     defaults: {
       settings: DEFAULT_V2_SETTINGS,
       seenItemIds: [],
+      seenReviewerItemIds: [],
+      lastSeenNoteAt: {},
+      interactions: {},
       recentItems: [],
     },
     schema: {
@@ -26,9 +29,19 @@ export function createStore(): Store<StoreSchema> {
         type: 'array',
         items: { type: 'string' },
       },
+      seenReviewerItemIds: {
+        type: 'array',
+        items: { type: 'string' },
+      },
+      lastSeenNoteAt: {
+        type: 'object',
+      },
+      interactions: {
+        type: 'object',
+      },
       recentItems: {
         type: 'array',
-        maxItems: 5,
+        maxItems: 50,
         items: { type: 'object' },
       },
     },
