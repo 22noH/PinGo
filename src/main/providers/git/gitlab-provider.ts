@@ -1,19 +1,28 @@
-// providers/git/gitlab-provider.ts — GitLab API 구현
+// providers/git/gitlab-provider.ts — GitLab API 구현 (v2 + v3 delegation)
 import axios, { AxiosError, AxiosInstance, AxiosRequestHeaders } from 'axios';
 import log from 'electron-log';
 import { PROVIDER_SHORT_LABEL } from '../../../shared/constants';
 import type {
+  ApprovalStatus,
+  BranchCreatePayload,
+  BranchCreateResult,
+  BranchListPayload,
+  BranchListResult,
   CommentPostResult,
+  CommentReplyPayload,
   ConnectionTestResult,
   Discussion,
   DiscussionNote,
+  GitIssue,
   GitLabConfig,
   ItemChange,
+  PipelineInfo,
   ReviewItemAuthor,
   ReviewItemSummary,
   ReviewItemWithChanges,
 } from '../../../shared/types';
 import type { GitProvider } from './git-provider';
+import * as V3 from './gitlab-provider-v3';
 
 interface GitLabUserBrief {
   id: number;
@@ -208,6 +217,26 @@ export class GitLabProvider implements GitProvider {
     } catch (err) {
       return { success: false, error: classifyGitLabError(err).message };
     }
+  }
+
+  // ── v3 확장 ────────────────────────────────────────────
+  fetchRecentPipelines(signal?: AbortSignal): Promise<PipelineInfo[]> {
+    return V3.fetchRecentPipelines(this.client, signal);
+  }
+  fetchApprovalStatus(item: ReviewItemSummary, signal?: AbortSignal): Promise<ApprovalStatus> {
+    return V3.fetchApprovalStatus(this.client, item, signal);
+  }
+  fetchAssignedIssues(signal?: AbortSignal): Promise<GitIssue[]> {
+    return V3.fetchAssignedIssues(this.client, this.config, signal);
+  }
+  createBranch(payload: BranchCreatePayload): Promise<BranchCreateResult> {
+    return V3.createBranch(this.client, payload);
+  }
+  listBranches(payload: BranchListPayload): Promise<BranchListResult> {
+    return V3.listBranches(this.client, payload);
+  }
+  postReply(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentPostResult> {
+    return V3.postReply(this.client, item, payload);
   }
 
   private normalize(raw: GitLabMRListItem): ReviewItemSummary {

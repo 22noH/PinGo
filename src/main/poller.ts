@@ -39,6 +39,12 @@ export interface PollerCallbacks {
   onError: PollErrorCallback;
   onTick?: PollTickCallback;
   onOpenItems?: OpenItemsCallback;
+  /**
+   * v3 확장 — 기본 이벤트 검출 후 추가 훅.
+   * pipeline/approval/issue 등 optional v3 이벤트 수집기. 반환된 배열은 onEvents 로 합산 전달.
+   * signal 은 현재 tick abort 용.
+   */
+  detectExtraEvents?: (openItems: ReviewItemSummary[], signal: AbortSignal) => Promise<ItemEvent[]>;
 }
 
 function connectionLabel(provider: GitProvider): string {
@@ -66,7 +72,7 @@ export function createPoller(
   initialProviders: GitProvider[],
   initialPollIntervalMs: number,
   seen: PollerSeenState,
-  { onEvents, onError, onTick, onOpenItems }: PollerCallbacks,
+  { onEvents, onError, onTick, onOpenItems, detectExtraEvents }: PollerCallbacks,
 ): PollerController {
   let providers: GitProvider[] = [...initialProviders];
   let pollIntervalMs = initialPollIntervalMs;
@@ -85,18 +91,17 @@ export function createPoller(
   const providerById = (id: string): GitProvider | undefined =>
     providers.find((p) => p.config.id === id);
 
+  // 각 item 의 updatedAt > lastSeenNoteAt 만 조회, 첫 조회는 seed 만 (기존 댓글 오인 방지).
   const detectCommentEvents = async (
     items: ReviewItemSummary[],
     signal: AbortSignal,
   ): Promise<ItemEvent[]> => {
-    // 각 item의 updatedAt이 lastSeenNoteAt 이후인 것만 discussions 조회 (비용 절감)
     const candidates = items.filter((item) => {
       const last = seen.lastSeenNoteAt.get(item.id);
-      if (!last) return true; // 한 번도 조회한 적 없음 → 이번 tick에서 seed (이벤트는 발생 안함)
+      if (!last) return true;
       return item.updatedAt > last;
     });
     if (candidates.length === 0) return [];
-
     const results = await Promise.allSettled(
       candidates.map(async (item): Promise<ItemEvent | null> => {
         const provider = providerById(item.gitConfigId);
@@ -106,35 +111,21 @@ export function createPoller(
           .flatMap((d) => d.notes)
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
         if (allNotes.length === 0) return null;
-
         const newest = allNotes[allNotes.length - 1].createdAt;
         const lastSeen = seen.lastSeenNoteAt.get(item.id);
-
-        if (!lastSeen) {
-          // 첫 조회 → seed 만 하고 이벤트 발생 안함 (기존 댓글을 "새 댓글"로 오인 방지)
-          seen.lastSeenNoteAt.set(item.id, newest);
-          return null;
-        }
-
+        if (!lastSeen) { seen.lastSeenNoteAt.set(item.id, newest); return null; }
         const newNotes = allNotes.filter(
           (n) => n.createdAt > lastSeen && isNoteRelevant(n, item, provider),
         );
-        if (newNotes.length === 0) {
-          // 타임스탬프는 갱신 (내가 단 댓글 등 무시한 것 반영)
-          seen.lastSeenNoteAt.set(item.id, newest);
-          return null;
-        }
         seen.lastSeenNoteAt.set(item.id, newest);
+        if (newNotes.length === 0) return null;
         return { kind: 'new_comments', item, newNotes };
       }),
     );
-
     const events: ItemEvent[] = [];
     for (const r of results) {
       if (r.status === 'fulfilled' && r.value) events.push(r.value);
-      else if (r.status === 'rejected') {
-        log.warn(`poller: discussion fetch failed: ${String(r.reason)}`);
-      }
+      else if (r.status === 'rejected') log.warn(`poller: discussion fetch failed: ${String(r.reason)}`);
     }
     return events;
   };
@@ -192,9 +183,7 @@ export function createPoller(
             anyError = true;
             const msg = err instanceof Error ? err.message : String(err);
             health.push({ ...base, ok: false, error: msg });
-            log.warn(
-              `poller[${provider.config.type}:${provider.config.id.slice(0, 8)}]: ${msg}`,
-            );
+            log.warn(`poller[${provider.config.type}:${provider.config.id.slice(0, 8)}]: ${msg}`);
             onError(err instanceof Error ? err : new Error(msg));
           }
         }
@@ -243,12 +232,18 @@ export function createPoller(
       const commentEvents = await detectCommentEvents(unique, mySignal);
       events.push(...commentEvents);
 
+      // 4) v3 확장 — pipeline / approval / issue 훅 (optional)
+      if (detectExtraEvents) {
+        try {
+          const extra = await detectExtraEvents(unique, mySignal);
+          events.push(...extra);
+        } catch (err) {
+          log.warn(`poller: v3 extra events failed: ${String(err).slice(0, 200)}`);
+        }
+      }
+
       if (events.length > 0) {
-        log.info(
-          `poller: events detected — new=${events.filter((e) => e.kind === 'new_item').length}, ` +
-            `reviewer=${events.filter((e) => e.kind === 'reviewer_assigned').length}, ` +
-            `comments=${events.filter((e) => e.kind === 'new_comments').length}`,
-        );
+        log.info(`poller: events detected — total=${events.length}`);
         onEvents(events);
       } else {
         log.debug(

@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
   <link rel="stylesheet" href="../shared/components-v2.css">
+  <link rel="stylesheet" href="../shared/components-v3.css">
+  <link rel="stylesheet" href="../shared/components-v3-branch.css">
   <link rel="stylesheet" href="./settings.css">
 </head>
 <body>
@@ -47,6 +49,19 @@
         </svg>
         AI
       </button>
+      <button id="tab-jira" type="button" role="tab" aria-controls="panel-jira" aria-selected="false" class="tab-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="3"/>
+          <path d="M8 12h8M12 8v8"/>
+        </svg>
+        Jira
+      </button>
+      <button id="tab-filters" type="button" role="tab" aria-controls="panel-filters" aria-selected="false" class="tab-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+        </svg>
+        프로젝트 필터
+      </button>
     </nav>
 
     <!-- ── 탭 패널 ──────────────────────────────────────── -->
@@ -71,6 +86,67 @@
 
         <!-- 인라인 편집 폼 (추가/편집 시 동적 렌더) -->
         <div id="git-form-host" hidden></div>
+      </div>
+
+      <!-- [Jira] -->
+      <div id="panel-jira" role="tabpanel" aria-labelledby="tab-jira" class="tab-panel" hidden>
+        <div class="field">
+          <div class="row" style="justify-content: space-between;">
+            <span class="field-label">Jira 연결</span>
+            <button id="btn-add-jira-connection" type="button" class="btn btn-jira btn-sm">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Jira 추가
+            </button>
+          </div>
+          <ul id="jira-connection-list" class="connection-list" aria-live="polite"></ul>
+          <div id="jira-connection-empty" class="connection-empty" hidden>
+            아직 등록된 Jira 연결이 없습니다. "Jira 추가" 버튼으로 Cloud 또는 Server/DC 계정을 연결하세요.
+          </div>
+        </div>
+
+        <div id="jira-form-host" hidden></div>
+
+        <div class="field">
+          <span class="field-label">
+            로컬 Webhook 수신기
+            <span id="jira-webhook-status-badge" class="badge badge-muted" style="margin-left: var(--space-2);">비활성</span>
+          </span>
+          <label class="checkbox-row">
+            <input id="jira-webhook-enabled" type="checkbox">
+            <span class="checkbox-label">웹훅 수신기 활성화 (선택)</span>
+          </label>
+          <span class="field-hint">
+            활성화 시 Atlassian 측에서 즉시 이슈 이벤트를 푸시할 수 있습니다. 비활성화 상태에서는 30초 폴링만 사용.
+          </span>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="jira-webhook-port">Webhook 포트 (1024–65535)</label>
+          <input id="jira-webhook-port" class="input" type="number" min="1024" max="65535" step="1" value="9876" style="max-width: 180px;">
+        </div>
+
+        <div class="field">
+          <span class="field-label">Webhook URL</span>
+          <div class="row" style="gap: var(--space-2); flex-wrap: wrap;">
+            <code id="jira-webhook-url" class="text-mono" style="padding:6px 10px;background:var(--bg-base);border:1px solid var(--border-default);border-radius:var(--radius-sm);max-width:100%;overflow-wrap:anywhere;"></code>
+            <button id="btn-jira-webhook-copy" type="button" class="btn btn-secondary btn-sm" disabled>복사</button>
+            <button id="btn-jira-webhook-regen" type="button" class="btn btn-ghost btn-sm" title="토큰 회전 시 Atlassian 측 webhook URL 재등록 필요">토큰 재생성</button>
+            <span id="jira-webhook-feedback" class="action-feedback is-info" hidden></span>
+          </div>
+          <span class="field-hint">
+            로컬 전용 URL 입니다. Jira Cloud 에서 호출하려면 사내망/VPN 또는 ngrok 등 터널링을 별도로 구성하세요.
+            토큰을 재생성하면 Atlassian 대시보드의 webhook URL 을 반드시 새 값으로 교체해 주세요.
+          </span>
+        </div>
+      </div>
+
+      <!-- [프로젝트 필터] -->
+      <div id="panel-filters" role="tabpanel" aria-labelledby="tab-filters" class="tab-panel" hidden>
+        <div id="filters-host" class="col" style="gap: var(--space-4);">
+          <div class="connection-empty">프로젝트 필터 UI 는 프로젝트 목록 로드 후 자동 렌더됩니다.</div>
+        </div>
       </div>
 
       <!-- [AI] -->

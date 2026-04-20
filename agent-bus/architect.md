@@ -1,4 +1,15 @@
 STATUS: DONE
+PHASE: 1 (v3 확장 설계 확정)
+LAST_UPDATED: 2026-04-20
+REVISION: 12 — Reviewer 크로스체크 ACK 후속: `ItemEventKindV3` + `ItemEventV3` alias 제거 내부 리팩터 (types-v3.ts). 실제 참조는 `ItemEvent`/`ItemEventKind` (types.ts) 단일 타입으로 통합. Backend/Frontend src/ 참조 0건 확인 후 안전 제거. §20.13.C3 의 종착 상태. 계약 외 의미 변경 없음.
+REVISION: 11 — Reviewer ACK 후 §20.12.D 마스킹 정규식 #4 자릿수/포맷 동기화 (UUID 36자 하이픈 → hex64 pure). 그 외 계약·설계 변경 없음. §20.13 전 항목 효력 유지.
+REVISION: 10 (v3 최종 확정) — Reviewer 피드백(§20.12) + team-lead Orchestrator 결정(§20.13) 전부 반영. **충돌 시 §20.13 > §20.12 > §20.0~§20.11 우선순위**. 핵심 변경 요약: Webhook URL path 방식(`/jira-webhook/<token>`), body 1MB, `ItemEventKind` v3 literal 직접 union(별도 alias 제거), `StoreSchema.jiraWebhookToken: string` (randomBytes 32 hex), Jira filter key `${jiraConfigId}::jira::${projectKey}` (중간 segment `jira` 고정), slug 한도 40 / 전체 255 분리, GitHub reply review_thread/issue_comment 분기 + quote fallback.
+
+> v2 설계는 아래 원본 그대로 보존 (REVISION 8 확정). v3 확장 설계는 파일 최하단 `## 20. v3 확장 설계` 이하에서 시작.
+
+---
+
+STATUS: DONE
 PHASE: 1 (v2)
 LAST_UPDATED: 2026-04-16
 REVISION: 8 — team-lead 최종 확정: `repoFullName` 으로 통일 (구현이 이미 repoFullName 기반, tsc 0 errors 상태). REVISION 7 의 projectPath 복구 지시는 취소. 이 필드명은 더 이상 변경하지 않음.
@@ -1482,3 +1493,1081 @@ NEXT:
 - **backend**: REVISION 5 의 C1/C2/M1/M3 + REVISION 6 의 M6/m1 구현 정정. (필드명 변경 작업은 모두 종료 — 이미 구현 완료.)
 - **frontend**: m1 의 `CommentPostPayload.providerType` 제거에 맞춘 `review.ts` 수정만 필요. `repoFullName` 은 그대로 유지.
 - **reviewer**: backend 정정 완료 후 2차 리뷰 착수. REVISION 8 기준으로 `repoFullName` 일관성 확인.
+
+---
+---
+
+# 20. v3 확장 설계 (REVISION 9 — 2026-04-20)
+
+> 본 §20 이하는 **v3 확장 전용**. 상위 §1–§15 의 v2 설계는 **보존·불변**.
+> v3 는 기존 v2 타입/채널을 **직접 수정하지 않고**, 오직 **union 확장 / optional 필드 추가 / 신규 채널 추가 / 신규 파일 추가** 로만 구성한다.
+> 작성자: architect. 협의: reviewer(보안 자문 요청 송신 완료).
+
+## 20.0 원칙 & 전체 다이어그램
+
+### 설계 원칙
+- **Open-Closed**: 기존 `ReviewItem*`, `ItemEvent`, `AppSettings`, `StoreSchema` 구조는 필드를 추가만 한다. 필드 rename/제거/semantic 변경 금지.
+- **백워드 호환**: v2 사용자가 v3 로 업데이트해도 기존 설정/저장소가 그대로 동작해야 한다. `store-migrate`의 v2→v3 마이그레이션은 **누락 필드 기본값 채움** 외 파괴적 변환 없음.
+- **Optional 확장**: `GitProvider` 인터페이스에 추가되는 v3 메서드는 **전부 optional**. 기존 provider 구현의 컴파일 영향 0.
+- **파일 분리 우선**: Jira 관련 코드는 `src/main/providers/jira/`, 브랜치 IPC는 `src/main/ipc-branch.ts`, 설정 UI는 `settings-jira.ts` 로 **파일 단위 격리**. 300줄 제한 준수.
+- **민감정보**: Jira Cloud 의 `email:apiToken` Basic Auth 헤더도 기존 axios interceptor에서 `Authorization: Basic [REDACTED]` 마스킹. electron-log 훅 패턴은 `glpat-*`, `ghp_*`, `Bearer xxx`, `Basic xxx` 4종으로 확장.
+
+### 전체 흐름 다이어그램 (ASCII)
+```
+┌──────────────┐      ┌────────────────────────┐      ┌──────────────────┐
+│  GitPoller   │──┐   │  JiraPoller (30s)      │──┐   │ JiraWebhookSrv   │
+│  (30s)       │  │   │  cloud/server 자동분기 │  │   │ 127.0.0.1:9876   │
+└──────────────┘  │   └────────────────────────┘  │   │ ?token=shared    │
+                  ▼                                ▼   └────────┬─────────┘
+         ┌────────────────────────────────────────────────┐    │
+         │   EventBus  (ItemEvent | JiraEvent)            │◀───┘
+         │   ─ 중복 제거: seen*Ids / lastSeenNoteAt        │
+         │   ─ 프로젝트 필터 적용: projectFilters          │
+         └──────────────┬─────────────────────────────────┘
+                        │
+               ┌────────┴────────┐
+               ▼                 ▼
+      ┌──────────────┐   ┌─────────────────┐
+      │  Notifier    │   │  Renderer IPC   │
+      │  (토스트)     │   │  ITEM_NEW /     │
+      │              │   │  JIRA_ISSUE_NEW │
+      └──────────────┘   └─────────────────┘
+```
+
+## 20.1 shared/types.ts — v3 확장 타입
+
+### 20.1.1 Jira Config / Issue / Event
+
+```typescript
+// shared/types.ts — §20 (v3) Jira 타입
+// strict mode — no `any` allowed
+
+/** Jira 인증 방식 구분 */
+export type JiraAuthType = 'cloud' | 'server';
+
+/**
+ * Jira 연결 설정.
+ * - cloud: email + apiToken 필수 (Basic Auth: base64(email:apiToken))
+ * - server: apiToken만 사용 (Bearer PAT). email은 무시/optional.
+ */
+export interface JiraConfig {
+  type: 'jira';
+  id: string;                     // crypto.randomUUID()
+  label?: string;                 // 표시용 별칭
+  authType: JiraAuthType;
+  url: string;                    // ex) https://myorg.atlassian.net  또는 https://jira.example.com
+  /** cloud 전용. server 에서는 undefined. */
+  email?: string;
+  apiToken: string;
+  /** 폴링 시 조회 대상으로 삼을 프로젝트 키 목록. 빈 배열이면 전체. */
+  watchedProjectKeys: string[];
+}
+
+/** Jira 이슈 요약 — 폴링/토스트/리스트 공용 경량 타입 */
+export interface JiraIssueSummary {
+  /** 복합 ID: `${jiraConfigId}::${issueKey}` (2-part, `::` delimiter 고정) */
+  id: string;
+  jiraConfigId: string;
+  issueKey: string;               // ex) "PROJ-123"
+  projectKey: string;             // ex) "PROJ"
+  summary: string;                // 제목
+  status: string;                 // ex) "In Progress"
+  priority?: string;              // ex) "High" (없을 수 있음)
+  assignee?: JiraUser;            // unassigned 가능
+  reporter: JiraUser;
+  webUrl: string;                 // ex) `${url}/browse/${issueKey}`
+  createdAt: string;              // ISO 8601
+  updatedAt: string;              // ISO 8601
+}
+
+export interface JiraUser {
+  accountId: string;              // cloud accountId / server username (정규화)
+  displayName: string;
+  emailAddress?: string;          // cloud 일부 허용, server 는 있음
+  avatarUrl?: string;
+}
+
+/** Jira 이벤트 종류 */
+export type JiraEventKind = 'jira_issue_assigned' | 'jira_issue_created';
+
+export interface JiraEvent {
+  kind: JiraEventKind;
+  issue: JiraIssueSummary;
+  /** webhook 유입인지 polling 유입인지 소스 구분 (로그/디버깅용) */
+  source: 'poll' | 'webhook';
+}
+```
+
+### 20.1.2 Git 추가 이벤트 / 서브타입
+
+```typescript
+// shared/types.ts — §20 (v3) Git 이벤트 확장
+
+/** v3에서 ItemEventKind 를 union 확장한다. v2 의 기존 3종은 그대로. */
+export type ItemEventKindV3 =
+  | 'new_item'
+  | 'reviewer_assigned'
+  | 'new_comments'
+  | 'pipeline_finished'
+  | 'mr_approved'
+  | 'changes_requested'
+  | 'issue_assigned'
+  | 'issue_mentioned';
+
+export type PipelineStatus = 'success' | 'failed' | 'canceled';
+
+export interface PipelineInfo {
+  id: number;                     // GitLab pipeline id / GitHub workflow run id
+  status: PipelineStatus;
+  webUrl: string;
+  ref: string;
+  finishedAt: string;
+  sha?: string;
+}
+
+/** MR/PR 승인 상태 */
+export interface ApprovalStatus {
+  approved: boolean;
+  approvedBy: ReviewItemAuthor[];
+  changesRequested: boolean;
+}
+
+/**
+ * 기존 `ItemEvent` 에 optional 필드만 append:
+ * - pipelineInfo?: PipelineInfo   (pipeline_finished)
+ * - approvalStatus?: ApprovalStatus (mr_approved / changes_requested)
+ * - issue?: GitIssueSummary       (issue_assigned / issue_mentioned)
+ * 그리고 kind 를 ItemEventKind | ItemEventKindV3 로 확장.
+ * 기존 v2 필드는 그대로 → 하위호환 유지.
+ */
+```
+
+### 20.1.3 Git Issue 타입
+
+```typescript
+// shared/types.ts — §20 (v3) GitLab/GitHub Issue
+
+/**
+ * GitLab Issue / GitHub Issue 통합 요약.
+ * (PR/MR 과는 **별도 엔티티** — ReviewItemSummary 와 섞지 않는다.)
+ */
+export interface GitIssueSummary {
+  /** 복합 ID: `${gitConfigId}::${providerType}::${projectId}::issue::${issueId}` (5-part) */
+  id: string;
+  gitConfigId: string;
+  providerType: GitProviderType;
+  providerLabel: string;          // 'GL' | 'GH'
+  issueId: number;                // GitLab iid / GitHub issue number
+  title: string;
+  body: string;
+  author: ReviewItemAuthor;
+  assignees: ReviewItemAuthor[];
+  webUrl: string;
+  projectId: number;
+  repoFullName?: string;          // GitHub 전용
+  createdAt: string;
+  updatedAt: string;
+  /** issue_mentioned 이벤트에서 채움 */
+  mentionedAt?: string;
+}
+```
+
+### 20.1.4 브랜치 생성 / 목록 타입
+
+```typescript
+// shared/types.ts — §20 (v3) Branch
+
+export interface BranchCreatePayload {
+  gitConfigId: string;
+  jiraIssueKey?: string;
+  branchName: string;             // 슬러그 규칙 적용된 최종 이름
+  baseBranch: string;
+  projectId: number;
+  repoFullName?: string;
+}
+
+export interface BranchCreateResult {
+  success: boolean;
+  branchName?: string;
+  webUrl?: string;
+  error?: string;
+  errorCode?: 'conflict' | 'forbidden' | 'not_found' | 'network' | 'unknown';
+}
+
+export interface BranchListPayload {
+  gitConfigId: string;
+  projectId: number;
+  repoFullName?: string;
+  prefix?: string;
+}
+
+export interface BranchListItem {
+  name: string;
+  webUrl?: string;
+  isDefault?: boolean;
+  protected?: boolean;
+}
+
+export interface BranchListResult {
+  success: boolean;
+  branches?: BranchListItem[];
+  defaultBranch?: string;
+  error?: string;
+}
+```
+
+### 20.1.5 댓글 답글(Reply) 타입
+
+```typescript
+// shared/types.ts — §20 (v3) Comment Reply
+
+export interface CommentReplyPayload extends CommentPostPayload {
+  /**
+   * GitLab: discussion id (string)
+   * GitHub: review comment id (number → string 통일)
+   */
+  discussionId: string;
+}
+
+// 결과 타입은 기존 CommentPostResult 재사용.
+```
+
+### 20.1.6 ProjectFilter (프로젝트별 뮤트)
+
+```typescript
+// shared/types.ts — §20 (v3) ProjectFilter
+
+export interface ProjectFilter {
+  /** 합성 키: `${gitConfigId}::${providerType}::${projectId}`
+   *  Git 측 ReviewItemSummary.id 의 앞 3-part 와 일치 — poller 측 O(1) 조회. */
+  projectKey: string;
+  displayLabel?: string;
+  muted: boolean;
+}
+```
+
+### 20.1.7 AppSettings v3 확장 (기존 AppSettings 에 필드 append)
+
+```typescript
+// shared/types.ts — §20 (v3) AppSettings 확장
+
+export interface AppSettingsV3Additions {
+  jiraConnections: JiraConfig[];
+  jiraWebhookEnabled: boolean;               // 기본 false
+  jiraWebhookPort: number;                   // 기본 9876
+  projectFilters: ProjectFilter[];
+  pipelineNotificationsEnabled: boolean;     // 기본 true
+  approvalNotificationsEnabled: boolean;     // 기본 true
+}
+// 실제 types.ts 에서는 AppSettings 인터페이스에 위 필드를 직접 추가한다.
+```
+
+### 20.1.8 StoreSchema v3 확장
+
+```typescript
+// shared/types.ts — §20 (v3) StoreSchema 확장
+export interface StoreSchemaV3Additions {
+  seenJiraIssueIds: string[];        // max 200 (FIFO)
+  recentJiraIssues: JiraIssueSummary[]; // max 20
+  seenPipelineIds: string[];         // max 200
+  seenApprovalItemIds: string[];     // max 200
+}
+```
+
+### 20.1.9 기타 공용 타입
+
+```typescript
+// Jira webhook 수신 payload 최소 정의 (내부 전용)
+export interface JiraWebhookEvent {
+  webhookEvent: string;              // ex) 'jira:issue_created'
+  issue_event_type_name?: string;
+  user?: JiraUser;
+  issue?: {
+    id: string;
+    key: string;
+    fields: {
+      summary: string;
+      status: { name: string };
+      priority?: { name: string };
+      assignee?: JiraUser;
+      reporter: JiraUser;
+      project: { key: string };
+      created: string;
+      updated: string;
+    };
+  };
+}
+
+export interface JiraConnectionTestPayload { config: JiraConfig; }
+export interface JiraConnectionTestResult {
+  success: boolean;
+  accountId?: string;
+  displayName?: string;
+  error?: string;
+}
+
+export interface ProjectFiltersSavePayload { filters: ProjectFilter[]; }
+export interface ProjectFiltersLoadResult { filters: ProjectFilter[]; }
+```
+
+## 20.2 shared/constants.ts — v3 신규 IPC 채널 및 상수
+
+```typescript
+// shared/constants.ts — §20 (v3) 신규 채널 (기존 v2 채널 수정 금지)
+
+// Main → Renderer
+export const JIRA_ISSUE_NEW = 'jira:issue:new' as const;
+export const LIST_JIRA_UPDATED = 'list:jira:updated' as const;
+export const PIPELINE_FINISHED = 'item:pipeline:finished' as const;
+export const ITEM_APPROVAL_CHANGED = 'item:approval:changed' as const;
+export const ISSUE_NEW = 'git:issue:new' as const;
+
+// Renderer → Main
+export const JIRA_CONNECTIONS_LOAD = 'jira:connections:load' as const;
+export const JIRA_CONNECTIONS_SAVE = 'jira:connections:save' as const;
+export const JIRA_CONNECTION_TEST = 'jira:connection:test' as const;
+
+export const BRANCH_CREATE = 'branch:create' as const;
+export const BRANCH_LIST = 'branch:list' as const;
+
+export const COMMENT_REPLY = 'comment:reply' as const;
+
+export const PROJECT_FILTERS_SAVE = 'project-filters:save' as const;
+export const PROJECT_FILTERS_LOAD = 'project-filters:load' as const;
+
+// v3 타입 유니온 (v2 타입 수정 금지 → 별도 유니온 후 합집합)
+export type MainToRendererChannelV3 =
+  | typeof JIRA_ISSUE_NEW
+  | typeof LIST_JIRA_UPDATED
+  | typeof PIPELINE_FINISHED
+  | typeof ITEM_APPROVAL_CHANGED
+  | typeof ISSUE_NEW;
+
+export type RendererToMainChannelV3 =
+  | typeof JIRA_CONNECTIONS_LOAD
+  | typeof JIRA_CONNECTIONS_SAVE
+  | typeof JIRA_CONNECTION_TEST
+  | typeof BRANCH_CREATE
+  | typeof BRANCH_LIST
+  | typeof COMMENT_REPLY
+  | typeof PROJECT_FILTERS_SAVE
+  | typeof PROJECT_FILTERS_LOAD;
+
+export type AnyMainToRendererChannel = MainToRendererChannel | MainToRendererChannelV3;
+export type AnyRendererToMainChannel = RendererToMainChannel | RendererToMainChannelV3;
+
+// 상수
+export const DEFAULT_JIRA_WEBHOOK_PORT = 9876;
+export const JIRA_WEBHOOK_PATH = '/jira-webhook' as const;
+export const MAX_SEEN_JIRA_ISSUE_IDS = 200;
+export const MAX_RECENT_JIRA_ISSUES = 20;
+export const MAX_SEEN_PIPELINE_IDS = 200;
+export const MAX_SEEN_APPROVAL_ITEM_IDS = 200;
+export const BRANCH_NAME_MAX_LEN = 40;
+export const BRANCH_NAME_PREFIX = 'feature/';
+
+export const JIRA_API_PATH = '/rest/api/3' as const;
+export const JIRA_API_PATH_SERVER_FALLBACK = '/rest/api/2' as const;
+```
+
+## 20.3 preload.ts — window.electronAPI v3 추가 메서드
+
+```typescript
+// preload.ts — §20 (v3) electronAPI 확장 (기존 메서드 유지)
+// 모든 on* 구독 메서드는 unsubscribe 반환.
+
+export interface ElectronAPIV3 {
+  loadJiraConnections(): Promise<JiraConfig[]>;
+  saveJiraConnections(connections: JiraConfig[]): Promise<void>;
+  testJiraConnection(config: JiraConfig): Promise<JiraConnectionTestResult>;
+
+  createBranch(payload: BranchCreatePayload): Promise<BranchCreateResult>;
+  listBranches(payload: BranchListPayload): Promise<BranchListResult>;
+
+  postCommentReply(payload: CommentReplyPayload): Promise<CommentPostResult>;
+
+  loadProjectFilters(): Promise<ProjectFiltersLoadResult>;
+  saveProjectFilters(payload: ProjectFiltersSavePayload): Promise<void>;
+
+  // 구독
+  onJiraIssueNew(cb: (event: JiraEvent) => void): () => void;
+  onListJiraUpdated(cb: (issues: JiraIssueSummary[]) => void): () => void;
+  onPipelineFinished(cb: (item: ReviewItemSummary, pipeline: PipelineInfo) => void): () => void;
+  onItemApprovalChanged(cb: (item: ReviewItemSummary, approval: ApprovalStatus) => void): () => void;
+  onIssueNew(cb: (issue: GitIssueSummary, kind: 'issue_assigned' | 'issue_mentioned') => void): () => void;
+}
+```
+
+## 20.4 모듈 / 파일 구조 (신규 파일)
+
+| 경로 | 라인(예상) | 역할 |
+|---|---|---|
+| `src/main/providers/jira/jira-provider.ts`        | ~250 | Jira Cloud/Server fetch + 정규화 |
+| `src/main/providers/jira/jira-webhook-server.ts`  | ~150 | 127.0.0.1 http 서버, token 검증, payload → JiraEvent |
+| `src/main/ipc-jira.ts`                            | ~200 | JIRA_* IPC + JIRA_ISSUE_NEW 송출 |
+| `src/main/ipc-branch.ts`                          | ~120 | BRANCH_CREATE / BRANCH_LIST |
+| `src/main/ipc-project-filters.ts`                 | ~80  | projectFilters load/save + 뮤트 판단 헬퍼 |
+| `src/renderer/settings/settings-jira.ts`          | ~200 | Jira 연결 CRUD + 테스트 + webhook URL 복사 |
+| `src/renderer/settings/settings-project-filters.ts`| ~150 | 프로젝트별 뮤트 UI |
+| `src/renderer/list/branch-modal.ts`               | ~150 | 브랜치 생성 모달 (slug 미리보기 + base select) |
+
+### 20.4.1 JiraProvider 인터페이스
+
+```typescript
+// src/main/providers/jira/jira-provider.ts
+export interface JiraProvider {
+  readonly config: JiraConfig;
+  testConnection(): Promise<JiraConnectionTestResult>;
+
+  fetchAssignedIssues(): Promise<JiraIssueSummary[]>;
+  fetchRecentlyCreatedIssues(): Promise<JiraIssueSummary[]>;
+  fetchIssueByKey(issueKey: string): Promise<JiraIssueSummary | null>;
+}
+
+export function createJiraProvider(config: JiraConfig): JiraProvider;
+```
+
+인증 헤더:
+- cloud: `Authorization: Basic base64(email + ':' + apiToken)`
+- server: `Authorization: Bearer apiToken`
+- axios interceptor 로 `Authorization` 전체 `[REDACTED]` 마스킹.
+
+### 20.4.2 JiraWebhookServer 인터페이스
+
+```typescript
+// src/main/providers/jira/jira-webhook-server.ts
+export interface JiraWebhookController {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  readonly token: string;
+  readonly localUrl: string;
+}
+
+export function createJiraWebhookServer(args: {
+  port: number;
+  onEvent: (ev: JiraEvent) => void;
+}): JiraWebhookController;
+```
+
+보안:
+- `listen(port, '127.0.0.1')` 고정.
+- query `?token=<32B hex>` 상수 시간 비교 (`crypto.timingSafeEqual`).
+- body 상한 2MB, Content-Type=application/json, 타임아웃 5초.
+- 실패는 `{"ok":false}` 최소 정보. token/body 원문 로그 금지.
+
+### 20.4.3 GitProvider v3 확장 (전부 optional)
+
+```typescript
+// providers/git/git-provider.ts — 기존 인터페이스에 optional 메서드만 추가
+export interface GitProvider {
+  // v2 기존 메서드 (수정 금지)
+  fetchOpenItems(): Promise<ReviewItemSummary[]>;
+  fetchChanges(item: ReviewItemSummary): Promise<ReviewItemWithChanges>;
+  postComment(payload: CommentPostPayload): Promise<CommentPostResult>;
+  testConnection(): Promise<ConnectionTestResult>;
+
+  // v3 optional
+  fetchRecentPipelines?(): Promise<Array<{ item: ReviewItemSummary; pipeline: PipelineInfo }>>;
+  fetchApprovalStatus?(item: ReviewItemSummary): Promise<ApprovalStatus>;
+  fetchAssignedIssues?(): Promise<GitIssueSummary[]>;
+  fetchMentionedIssues?(): Promise<GitIssueSummary[]>;
+  createBranch?(payload: BranchCreatePayload): Promise<BranchCreateResult>;
+  listBranches?(payload: BranchListPayload): Promise<BranchListResult>;
+  postReply?(payload: CommentReplyPayload): Promise<CommentPostResult>;
+}
+```
+
+GitLab 매핑:
+- Pipeline: `GET /projects/:id/pipelines?ref=:branch&per_page=10`
+- Approval: `GET /projects/:id/merge_requests/:iid/approvals`
+- Issues(assigned): `GET /issues?scope=assigned_to_me&state=opened`
+- Issues(mentioned): `GET /issues?scope=all&search=@:username&state=opened` (+ 댓글 스캔 보조)
+- Branch 생성: `POST /projects/:id/repository/branches?branch=&ref=`
+- Branch 목록: `GET /projects/:id/repository/branches?search=<prefix>`
+- Reply: `POST /projects/:id/merge_requests/:iid/discussions/:discussionId/notes`
+
+GitHub 매핑:
+- Pipeline(Actions): `GET /repos/:owner/:repo/actions/runs?branch=&per_page=10`
+- Approval(Review): `GET /repos/:owner/:repo/pulls/:number/reviews`
+- Issues(assigned): `GET /issues?filter=assigned&state=open`
+- Issues(mentioned): `GET /issues?filter=mentioned&state=open`
+- Branch 생성: 2-step. `GET /repos/:owner/:repo/git/ref/heads/:base` → `POST /repos/:owner/:repo/git/refs` body `{ ref:"refs/heads/<name>", sha }`
+- Branch 목록: `GET /repos/:owner/:repo/branches?per_page=100`
+- Reply: `POST /repos/:owner/:repo/pulls/:number/comments/:comment_id/replies` (review 스레드 한정)
+
+### 20.4.4 ipc-branch.ts 흐름
+
+```
+IPC BRANCH_CREATE
+  payload.gitConfigId -> provider 해결
+  provider.createBranch(payload)
+    - slug 재검증 (BRANCH_NAME_MAX_LEN, 허용문자)
+    - 충돌 시 errorCode='conflict'
+    - 성공 시 webUrl 반환
+```
+
+### 20.4.5 Event Bus (poller 통합)
+
+- 기존 `poller.ts` tick 내에 아래 단계 추가(전부 optional 호출):
+  1. `fetchApprovalStatus` diff → `mr_approved` / `changes_requested` 이벤트.
+  2. `fetchRecentPipelines` → `seenPipelineIds` 비교 → `pipeline_finished` 이벤트.
+  3. `fetchAssignedIssues` / `fetchMentionedIssues` → `ISSUE_NEW` 방출.
+- Jira poller 는 별도 모듈이지만 초판은 `pollIntervalMs` 를 공유(동일 tick piggy-back).
+- `projectFilters` 뮤트는 **이벤트 송출 직전 `notifier.ts`** 에서 적용. 폴링/리스트 데이터 자체에는 영향 없음(리스트에는 보이되 토스트만 스킵).
+
+## 20.5 electron-store v3 마이그레이션
+
+```typescript
+// store-migrate.ts — §20 v2→v3 (의사코드)
+
+function migrateV2toV3(v2: StoreSchemaV2): StoreSchemaV3 {
+  return {
+    ...v2,
+    settings: {
+      ...v2.settings,
+      jiraConnections: v2.settings.jiraConnections ?? [],
+      jiraWebhookEnabled: v2.settings.jiraWebhookEnabled ?? false,
+      jiraWebhookPort: v2.settings.jiraWebhookPort ?? DEFAULT_JIRA_WEBHOOK_PORT,
+      projectFilters: v2.settings.projectFilters ?? [],
+      pipelineNotificationsEnabled: v2.settings.pipelineNotificationsEnabled ?? true,
+      approvalNotificationsEnabled: v2.settings.approvalNotificationsEnabled ?? true,
+    },
+    seenJiraIssueIds: [],
+    recentJiraIssues: [],
+    seenPipelineIds: [],
+    seenApprovalItemIds: [],
+  };
+}
+```
+
+- `schemaVersion: 3` 기록.
+- JSON schema 방어: `jiraConnections.items:{type:'object'}`, `projectFilters.items:{type:'object'}`.
+- 손상 방어: seen* 배열이 Array 아니면 `[]` 리셋. recentJiraIssues 20 초과 FIFO 절삭.
+
+## 20.6 Jira Webhook — 설정 UI + URL 규칙
+
+- 설정창 Jira 섹션에 스위치: "로컬 webhook 수신기 사용". 기본 9876 포트.
+- 복사 가능한 URL 표시:
+  ```
+  http://127.0.0.1:9876/jira-webhook?token=<랜덤32>
+  ```
+- "토큰 재생성" 버튼 제공 — 재생성 시 Atlassian 측 webhook 재등록 필요(경고 모달).
+- 안내 문구(고정):
+  > ⓘ 로컬 전용 URL 입니다. Jira Cloud 에서 호출하려면 사내망/VPN 또는 ngrok 등 터널링을 별도로 구성하십시오. 외부 노출 시 token 비공개 유지.
+
+## 20.7 브랜치명 규칙
+
+- 형식: `feature/{ISSUE_KEY}-{slug}`
+- slug 생성:
+  1. NFKD 정규화 후 ASCII 안전 문자만.
+  2. `[a-z0-9]` + `-` 이외는 `-` 치환.
+  3. 공백/언더스코어/특수문자 → `-`, 연속 `-` 축약, 앞뒤 `-` 트림.
+  4. 소문자 변환.
+  5. 최대 길이 `BRANCH_NAME_MAX_LEN` = 40. 단어 경계 절단.
+- 총 길이 ≈ `feature/` + `KEY-` + 40 ≤ 60자.
+- 금칙: `~`, `^`, `:`, `?`, `*`, `[`, `\`, 공백, `.lock`, `..`, leading `-`.
+- UI 모달: 사용자가 slug 수정 가능, 실시간 유효성 검사.
+
+## 20.8 보안 명세 (v3 추가)
+
+1. **electron-log 마스킹 패턴 확장**: `glpat-[A-Za-z0-9_-]+`, `ghp_[A-Za-z0-9]+`, `ghs_[A-Za-z0-9]+`, `(?:Bearer|Basic)\s+[A-Za-z0-9+/=._-]+`, `x-atlassian-token`, `x-atlassian-webhook-identifier`.
+2. **axios interceptor**: Jira provider 에도 request/response interceptor — `Authorization` / `Cookie` 헤더 `[REDACTED]`.
+3. **Webhook 서버**:
+   - 127.0.0.1 바인딩 고정.
+   - 5초 타임아웃.
+   - JSON body 상한 2MB.
+   - `crypto.timingSafeEqual` 토큰 비교.
+   - token / body 원문 로그 금지. 기록 대상: 이벤트 종류 + issueKey.
+4. **branch 생성**: shell 호출 없음(REST 경로 파라미터). `encodeURIComponent` 필수.
+5. **projectFilters**: 키 파싱 시 `::` 개수 검증(정확히 2개 → 3-part). 손상 레코드는 무시.
+6. **Jira Cloud apiToken/email**: electron-store 평문 저장 유지(v2 GitLab 토큰 정책과 동일). safeStorage 전환은 **v3 범위 외(v4 과제)**.
+7. **CSP / sandbox**: v2 기조 유지 — `contextIsolation:true`, `sandbox:true`, `nodeIntegration:false`. webhook 서버는 메인 프로세스 전용.
+
+## 20.9 파일 300줄 제한 플랜
+
+| 파일 | v2 현재 | v3 +Δ | 위험도 | 완화책 |
+|---|---|---|---|---|
+| `shared/types.ts` | 282 | +~120 | ⚠️ 400줄 초과 | **분할 필수**: `types.ts` (v2 core) + `types-jira.ts` + `types-v3.ts`, `types.ts` 는 re-export 허브 |
+| `shared/constants.ts` | 111 | +~50 | 안전 | 그대로 |
+| `src/main/ipc.ts` | 264 | +~20 | 안전 | v3 채널은 별도 파일 분리 |
+| `src/main/poller.ts` | 167 | +~80 | 안전 | `poller-events.ts` (~80) 로 분리 가능 |
+| `src/main/store.ts` | 43 | +~10 | 안전 | 그대로 |
+| `src/main/store-migrate.ts` | 87 | +~40 | 안전 | v2→v3 함수 추가만 |
+| `src/preload.ts` | 191 | +~60 | 경계 | 필요 시 `preload-v3.ts` 로 분리 후 결합 |
+
+결정: `shared/types.ts` **반드시 분할**. 공개 export 경로는 `shared/types.ts` 유지(re-export 허브), 내부에 `types-jira.ts`, `types-v3.ts` 추가.
+
+## 20.10 Reviewer 자문 결과 (송신 완료, 회신 반영 예정)
+
+- (A) Jira Webhook: 127.0.0.1 바인딩 + 32B token(`crypto.timingSafeEqual`) 방침 채택. HMAC 서명은 Jira Cloud 표준 미제공 → query token 통일. 회신 도착 시 본 섹션 갱신.
+- (B) 평문 저장 유지: v3 범위에서 safeStorage 전환 보류(v4 분리).
+- (C) Branch default branch 자동 제안: GitLab/GitHub 응답 필드(default_branch)에서 추출, 사용자 확인 후 POST.
+- (D) Basic Auth 헤더 마스킹: `Basic [A-Za-z0-9+/=]+` 정규식 추가.
+- (E) projectFilters 키: `${gitConfigId}::${providerType}::${projectId}` 3-part. `id.split('::').slice(0,3).join('::')` 로 O(1) 매칭.
+
+반대 의견 회신 시 REVISION 10 부분 패치.
+
+## 20.11 Phase 별 인수 조건
+
+### Backend 인수 조건 (Phase 2)
+- `shared/types.ts` 분할 후 v3 타입 컴파일 통과(`tsc --noEmit` 0 errors).
+- `shared/constants.ts` v3 채널 상수 + 유니온 export.
+- `store-migrate.ts` v2→v3 함수 추가, 기존 마이그레이션 테스트 유지.
+- `providers/git/*-provider.ts` v3 optional 메서드 구현(GitLab 우선, GitHub 2순위).
+- `providers/jira/jira-provider.ts` + `jira-webhook-server.ts` 신규 구현.
+- `ipc-jira.ts`, `ipc-branch.ts`, `ipc-project-filters.ts` 핸들러 등록(register/unregister 대칭).
+- `poller.ts` v3 이벤트 훅 + `projectFilters` 뮤트 적용.
+- 모든 파일 300줄 이하, `any` / `console.*` 금지.
+
+### Frontend 인수 조건 (Phase 3)
+- 설정창 Jira 섹션(`settings-jira.ts`): 연결 CRUD + 테스트 + webhook 토글/URL 복사.
+- 설정창 Project Filters: 수집된 project 목록에서 뮤트 체크박스.
+- 리스트 윈도우: 기존 MR/PR 탭 옆 **Jira 탭**(최근 20개) + 브랜치 생성 모달.
+- 리뷰 윈도우: discussion 영역 inline reply 박스(`postCommentReply` 호출).
+- 트레이 메뉴: pipeline/approval 토스트 활성 토글 2개 추가.
+
+### Reviewer 인수 조건 (Phase 4)
+- 필드/채널 스키마 전수 점검(v2 무결성 포함).
+- webhook 서버 침투 테스트(local-only, token 비교, payload size, timing).
+- 로그 샘플에서 토큰/이메일/Basic 헤더 0건 확인.
+- 300줄 파일 제한 전수 확인.
+
+---
+
+STATUS: DONE
+PHASE: 1 (v3 확장 설계)
+REVISION: 9 — v3 확장 설계 초판 완성. §20 전체 추가. v2 설계(§1–§19)는 불변 보존.
+NEXT:
+- **backend**: §20.11 Backend 인수 조건에 따라 타입 분할 + 신규 파일 + provider/poller 확장.
+- **frontend**: §20.11 Frontend 인수 조건에 따라 Jira 설정/리스트/브랜치 모달/답글 UI.
+- **reviewer**: 보안 자문 회신 후 §20.10 반영(REVISION 10) + Phase 4 통합 검증.
+
+---
+
+## 20.12 REVISION 10 — Reviewer 피드백 반영 패치 (2026-04-20)
+
+> 본 §20.12 는 §20.0~§20.11 의 **정정·강화 패치**. 충돌 시 §20.12 가 최종 기준.
+> Reviewer(purple) 회신: "강한 반대 없으니 보강 사항 반영하면 확정 OK."
+
+### 20.12.A Jira Webhook — URL을 path 방식으로 변경 (query → path)
+
+**변경 전(§20.6):** `http://127.0.0.1:9876/jira-webhook?token=<hex>`
+**변경 후(확정):** `http://127.0.0.1:9876/jira-webhook/{secret}`
+
+- secret 생성: **앱 첫 기동 시** `crypto.randomUUID()` (36자, 하이픈 포함, 엔트로피 122bit). electron-store 에 `jiraWebhookSecret` 필드로 저장.
+- 검증 방식: Node http 서버가 `req.url` 파싱 → path 마지막 segment 를 `crypto.timingSafeEqual` 로 비교.
+- 쿼리스트링 선택을 철회한 이유: 경유 프록시/로그 파일에 남을 위험 ↑. path 방식은 일반적으로 access-log 마스킹 대상이며 Referer 누수 창구 상 상대적으로 안전.
+- 기동 시 **`server.address()` / `getsockname`** 으로 `address === '127.0.0.1'` 확인. 아니면 즉시 `server.close()` + 로그 + throw.
+- 0.0.0.0 바인딩 **명시 금지**.
+- body size 상한: **1MB** (§20.4.2 의 2MB 를 1MB 로 하향, Reviewer 제안).
+- CSRF 방어: Origin/Referer 무의미(Jira가 붙이지 않음) → secret token 이 사실상 유일 방어선. 따라서 secret 유출 시 즉시 로테이션 필요.
+- **secret 로테이션 UI**: 설정창 Jira 섹션에 "웹훅 URL 재생성" 버튼. 클릭 시 경고 모달(Atlassian 측 webhook URL 재등록 안내) → 확인 시 `crypto.randomUUID()` 재생성 + 저장 + UI 갱신.
+
+**types 반영:**
+- `AppSettings` 에 internal 필드: 저장은 하되 설정 UI의 평문 입력 불가.
+  ```typescript
+  // AppSettings 확장 (REVISION 10)
+  jiraWebhookSecret: string;        // 내부 관리, 초기값은 첫 기동 시 crypto.randomUUID()
+  ```
+  (기본값 생성은 `store-migrate` + `main.ts` 첫 기동 훅에서.)
+
+**상수 변경:**
+```typescript
+// shared/constants.ts (REVISION 10 패치)
+export const JIRA_WEBHOOK_PATH_PREFIX = '/jira-webhook/' as const;  // trailing slash
+export const JIRA_WEBHOOK_BODY_LIMIT_BYTES = 1_048_576;             // 1 MB
+export const JIRA_WEBHOOK_REQUEST_TIMEOUT_MS = 5_000;
+// (기존 JIRA_WEBHOOK_PATH='/jira-webhook' 은 **deprecate**, prefix 상수로 대체)
+```
+
+**JiraWebhookController 인터페이스 (§20.4.2 갱신):**
+```typescript
+export interface JiraWebhookController {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  readonly secret: string;          // crypto.randomUUID() (rename: token → secret)
+  readonly localUrl: string;        // http://127.0.0.1:9876/jira-webhook/<secret>
+  rotateSecret(): Promise<string>;  // 신규: 재생성 후 새 localUrl 반환
+}
+```
+
+### 20.12.B 평문 저장 — v3 범위 외 확정
+
+Reviewer 동의. `jiraConnections.apiToken` / `email` / `jiraWebhookSecret` 는 **평문 electron-store 유지**. safeStorage 전환은 **v4 과제**로 별도 이슈화 권장(architect 차기 계획 메모: `v4-backlog.md` 신설 제안).
+
+### 20.12.C 브랜치 생성 — sanitize 규칙 강화 (§20.7 정정)
+
+**최종 branchName 규칙 (확정):**
+- 허용 문자: `[a-zA-Z0-9/_-]`
+- 슬래시는 최대 2개 (`feature/sub/name` 까지)
+- 첫 문자: 영문자 (숫자/기호 시작 금지)
+- 총 길이: **≤ 120자** (v3 §20.7 의 40자는 **slug 부분만** 을 의미하도록 해석 — prefix + issueKey 포함 120자 한도로 확정)
+- 금지: `..`, `~`, `^`, `:`, `?`, `*`, `[`, `\`, 공백, 연속 `//`, 끝의 `.` 또는 `.lock`, leading `-`
+
+**slug 생성기 규칙 (확정):**
+1. Jira `summary` 를 NFKD 정규화.
+2. 한글/이모지/제어문자 제거 (`/\p{Extended_Pictographic}|[\u0000-\u001F]|[^\x00-\x7F]/gu` → 공백).
+3. `[^a-zA-Z0-9]+` → `-` 치환 후 연속 `-` 축약, 앞뒤 `-` 트림, 소문자 변환.
+4. 최대 40자 cut (단어 경계 우선, 없으면 hard cut).
+5. 결과가 빈 문자열이면 사용자 입력 강제(UI 에러).
+
+**baseBranch 검증(신규):**
+- 렌더러가 BRANCH_CREATE 호출 시 `baseBranch` 도 위 **허용 문자 집합** 적용. 드롭다운에서 선택된 값도 예외 없음(임의 IPC 위변조 방지).
+- ipc-branch.ts 진입점에서 재검증 → 실패 시 `errorCode: 'unknown'` + `error: 'invalid_base_branch'`.
+
+**결과 번역(UI 친화):**
+- 409 conflict → `errorCode: 'conflict'` + UI 표시 "이미 존재하는 브랜치 이름입니다".
+- 403 forbidden → `errorCode: 'forbidden'` + "권한이 없습니다".
+- 404 → `errorCode: 'not_found'` + "프로젝트 또는 base 브랜치를 찾을 수 없습니다".
+- 원문 API error body 는 **UI 에 노출 금지** (token/email 흔적 유출 방지). electron-log(error 레벨)에만 요약 기록.
+
+### 20.12.D 로그 마스킹 — 확장 (§20.8 정정)
+
+**electron-log 마스킹 정규식 (REVISION 11 최종):**
+```
+1. /glpat-[A-Za-z0-9_-]+/
+2. /ghp_[A-Za-z0-9]+/ , /ghs_[A-Za-z0-9]+/
+3. /(Authorization:\s*)(Basic|Bearer)\s+[^\s"',}]+/gi  →  '$1$2 [REDACTED]'
+4. /\/jira-webhook\/[0-9a-fA-F]{64}/g                   →  '/jira-webhook/[REDACTED]'
+5. /x-atlassian-(token|webhook-identifier):\s*[^\s"',}]+/gi → '$1: [REDACTED]'
+```
+
+> **REVISION 11 변경**: 규칙 #4 자릿수 `{36}` → `{64}`, 하이픈 클래스(`-`) 제거. §20.13.I1 로 token 포맷이 UUID(122bit, 36자 하이픈 포함) → `randomBytes(32).toString('hex')` (256bit, 64자 pure hex) 로 확정된 데 따른 동기화. 구 UUID 포맷은 저장소/URL 어디에도 존재하지 않으므로 하위 호환 대안 불필요.
+
+**추가 규칙:**
+- response body 로깅 시 **info 레벨 이상 금지** (error 에서만 요약). Jira error body 는 email 포함 가능.
+- Jira Cloud `email:apiToken` 을 base64 인코딩하는 **유틸 함수 진입 전 단계**에서 info/debug 로그 절대 금지. 해당 함수는 전용 파일(`providers/jira/auth.ts`) 로 격리 권장.
+- 테스트 코드에 고정 토큰/이메일 리터럴 금지 → `process.env` + fixture 파일 `.gitignore`.
+- axios interceptor 의 request/response config 를 스트링화하지 않음(Header clone 후 Authorization 마스킹 대상 키만 건드림).
+
+### 20.12.E ProjectFilter 키 — 별도 키공간 + 주석 의무화 (§20.1.6 정정)
+
+**Git projectFilter 키:** `${gitConfigId}::${providerType}::${projectId}` (3-part)
+**Jira projectFilter 키:** `jira::${jiraConfigId}::${projectKey}` (3-part, **prefix `jira::` 고정**)
+
+두 키공간 완전 분리 → 충돌 불가.
+
+`ProjectFilter` 인터페이스 (확정 JSDoc):
+```typescript
+export interface ProjectFilter {
+  /**
+   * Git: `${gitConfigId}::${providerType}::${projectId}` (3-part).
+   *      ReviewItemSummary.id (4-part) 와 다름 — itemId 불포함.
+   * Jira: `jira::${jiraConfigId}::${projectKey}` (3-part, prefix 'jira::' 고정).
+   * 두 키공간은 상호 배타적. 키 시작이 'jira::' 이면 Jira filter.
+   */
+  projectKey: string;
+  displayLabel?: string;
+  muted: boolean;
+}
+```
+
+**헬퍼 함수 (ipc-project-filters.ts 권장 시그니처):**
+```typescript
+export function isJiraFilterKey(key: string): boolean;
+export function gitFilterKeyFromItem(item: ReviewItemSummary): string;
+export function jiraFilterKey(jiraConfigId: string, projectKey: string): string;
+```
+
+### 20.12.F Critical — ItemEventKind 기존 literal 보존 엄수
+
+- 기존 v2 literal 값 `'new_item'`, `'reviewer_assigned'`, `'new_comments'` **절대 개명 금지**.
+- 현재 코드에 `new_mr` / `assigned_mr` 등 유사명 잔재 없음(검증: `grep -rn "new_mr\|assigned_mr" src/` → 0건이어야 함. backend 구현 진입 전 필수 확인).
+- store-migrate 의 `seen*Ids` 는 기존 literal 그대로 참조하므로 개명 시 사용자 seen 상태 손실.
+- v3 추가 literal: `pipeline_finished | mr_approved | changes_requested | issue_assigned | issue_mentioned` (§20.1.2 원안 그대로).
+
+### 20.12.G Minor 3건 — 반영
+
+1. **Jira webhook 서버 기동 실패 fallback (`main.ts` 통합 지점)**
+   ```typescript
+   try {
+     await webhook.start();
+   } catch (err) {
+     log.warn('[jira-webhook] start failed, falling back to polling-only', err);
+     // settings.jiraWebhookEnabled 는 사용자 선택 유지, 런타임만 off.
+     // UI 에 "webhook 서버 비활성(포트 충돌/권한)" 상태 배지 노출.
+   }
+   ```
+   앱 크래시 금지. 실패 원인 enum: `'port_in_use' | 'permission' | 'unknown'`.
+
+2. **JiraProvider 폴링 격리**
+   - `poller.ts` 메인 루프에서 `Promise.allSettled([...gitProviders, ...jiraProviders])` 사용.
+   - Jira 실패가 Git 폴링/토스트에 영향 없도록 분리. 실패는 per-provider 헬스 상태(`ConnectionHealth` 의 Jira 버전)에 반영.
+   - Jira 전용 `JiraConnectionHealth` 추가 (§20.1 JSDoc 보강 필요):
+     ```typescript
+     export interface JiraConnectionHealth {
+       jiraConfigId: string;
+       label: string;
+       ok: boolean;
+       lastCheckedAt?: string;
+       error?: string;
+     }
+     ```
+
+3. **Webhook secret 재생성 UI** — §20.12.A 에 이미 포함. 설정창 Jira 섹션에 버튼 + 경고 모달.
+
+### 20.12.H 타입·상수 델타 요약 (backend 즉시 반영용)
+
+**shared/types-v3.ts 에 추가/수정:**
+- `ProjectFilter.projectKey` JSDoc 확장 (§20.12.E).
+- `BranchCreateResult.errorCode` 에 `'invalid_base_branch'` 고려는 불필요 — `'unknown'` + error message 로 처리.
+- `JiraConnectionHealth` 신규 (§20.12.G.2).
+
+**shared/types-jira.ts 에 추가:**
+- (없음 — secret 은 AppSettings 필드이며 `JiraConfig` 와 분리)
+
+**shared/types.ts (AppSettings 확장 추가):**
+```typescript
+jiraWebhookSecret: string;   // 내부 필드, 첫 기동 시 randomUUID() 채움
+```
+초기값: store-migrate v2→v3 에서 `v2.settings.jiraWebhookSecret ?? crypto.randomUUID()`.
+
+**shared/constants.ts 추가/변경:**
+```typescript
+export const JIRA_WEBHOOK_PATH_PREFIX = '/jira-webhook/' as const;
+export const JIRA_WEBHOOK_BODY_LIMIT_BYTES = 1_048_576;
+export const JIRA_WEBHOOK_REQUEST_TIMEOUT_MS = 5_000;
+// JIRA_WEBHOOK_PATH 상수는 유지하되 주석: "@deprecated — use JIRA_WEBHOOK_PATH_PREFIX + secret"
+```
+
+### 20.12.I 테스트 체크리스트 (Reviewer Phase 4 용)
+
+- [ ] `server.address()` 검증: 바인딩이 `127.0.0.1` 아니면 start() 실패.
+- [ ] `/jira-webhook/{wrong}` POST → 401/404 (타이밍 동일해야 함 — timingSafeEqual).
+- [ ] Content-Type `text/plain` POST → 400.
+- [ ] 1MB+1byte body → 400.
+- [ ] secret 로테이션 후 구 URL 접근 → 401.
+- [ ] 로그 샘플에 `Basic [A-Za-z0-9+/=]+` / `Bearer [A-Za-z0-9]+` / `glpat-*` / `ghp_*` / UUID-form webhook secret 0건.
+- [ ] branchName `invalid..branch` / `feat~ure` / `CON` 등 입력 → 400 (서버 응답 전 sanitize).
+- [ ] baseBranch 에 임의 문자열 주입 시 ipc-branch 에서 차단.
+- [ ] ItemEventKind literal 3종이 v2 와 동일 문자열 유지.
+
+---
+
+STATUS: DONE
+PHASE: 1 (v3 확장 설계 확정)
+REVISION: 10 — Reviewer 피드백 반영 패치 완료 (§20.12). 기존 §20.0~§20.11 는 원안 보존, 충돌 시 §20.12 우선.
+NEXT:
+- **backend**: §20.12.H 타입·상수 델타 먼저 반영 → §20.11 인수 조건대로 17개 파일 구현.
+- **frontend**: §20.12.A(webhook URL 복사/재생성 버튼), §20.12.C(slug 검증 UI), §20.12.E(Jira filter 별도 탭) 반영.
+- **reviewer**: §20.12.I 체크리스트 기반 Phase 4 통합 검증. 추가 의견 발생 시 REVISION 11 부분 패치.
+
+---
+
+## 20.13 REVISION 10 — Orchestrator 최종 결정사항 반영 (2026-04-20 후속)
+
+> team-lead Orchestrator 결정을 받아 **§20.10~§20.12 일부 항목 정정**. 충돌 시 §20.13 이 최종 기준.
+> 결정 항목: C1(path 방식 확정), C2(1MB 확정), C3(ItemEventKind 직접 union), I1(token 필드명/생성), I2(allSettled 격리 명시), I3(Jira key 포맷 변경), I4(brand name 한도 분리), I5(GitHub reply 한계 명시).
+
+### 20.13.C1 Webhook token 위치 — path 방식 확정
+`POST /jira-webhook/<token>` 채택. query string 방식 완전 제거.
+- §20.12.A 에서 이미 반영. 본 REVISION 에서 **확정** 재확인.
+- `JIRA_WEBHOOK_PATH_PREFIX = '/jira-webhook/'` (trailing slash) + token 연결.
+
+### 20.13.C2 Body size — 1MB 확정
+- `JIRA_WEBHOOK_BODY_LIMIT_BYTES = 1 * 1024 * 1024` (= 1_048_576)
+- §20.12.A 에서 이미 반영. 본 REVISION 에서 **확정**.
+- 서버 구현에서 `req` 청크 누적 시 상한 초과 즉시 `400` + socket destroy.
+
+### 20.13.C3 ItemEventKind — 직접 union 확장 (ItemEventKindV3 alias 제거)
+
+**정정**: §20.1.2 의 `ItemEventKindV3` 별도 alias 를 **제거**. `types.ts` 의 기존 `ItemEventKind` 에 v3 5개 literal 을 **직접 append**.
+
+최종 타입 (확정):
+```typescript
+// shared/types.ts — ItemEventKind 최종 정의 (REVISION 10 확정)
+export type ItemEventKind =
+  | 'new_item'              // v2 유지 (literal 보존)
+  | 'reviewer_assigned'     // v2 유지 (literal 보존)
+  | 'new_comments'          // v2 유지 (literal 보존)
+  | 'pipeline_finished'     // v3 신규
+  | 'mr_approved'           // v3 신규
+  | 'changes_requested'     // v3 신규
+  | 'issue_assigned'        // v3 신규
+  | 'issue_mentioned';      // v3 신규
+```
+
+**영향**:
+- §20.1.2 의 `ItemEventKindV3` 선언 삭제.
+- §20.1.2 의 `ItemEvent.kind: ItemEventKind | ItemEventKindV3` → `ItemEvent.kind: ItemEventKind` (단일 참조).
+- v2 코드는 exhaustive switch/narrowing 에서 새 literal 이 **타입 에러**로 노출되어 커버리지 보장. 이것이 채택 사유.
+- 기존 literal 3종 값은 **절대 변경 금지** (seen 상태 마이그레이션 안전).
+
+### 20.13.I1 Webhook token persist — 필드명·생성 방식 확정 (정정)
+
+**정정**: §20.12.A 의 `AppSettings.jiraWebhookSecret` 필드명 및 생성 방식을 team-lead 결정대로 변경.
+
+확정 사항:
+- **위치**: `StoreSchema` 최상위 레벨 (AppSettings 아님).
+- **필드명**: `jiraWebhookToken` (secret → token, 일관성을 위해).
+- **생성**: `crypto.randomBytes(32).toString('hex')` (64-char hex, 256bit 엔트로피). `crypto.randomUUID()` 아님.
+- **생성 시점**: 앱 첫 실행(store-migrate v2→v3) 또는 UI "토큰 재생성" 클릭 시.
+- **검증**: `crypto.timingSafeEqual` 로 path 마지막 segment 비교.
+
+최종 타입 반영:
+```typescript
+// StoreSchema (REVISION 10 확정) — AppSettings 외 최상위에 추가
+export interface StoreSchema {
+  // ... v2 필드 유지
+  // v3 추가:
+  seenJiraIssueIds: string[];
+  recentJiraIssues: JiraIssueSummary[];
+  seenPipelineIds: string[];
+  seenApprovalItemIds: string[];
+  /** Jira webhook 인증 토큰 — 첫 기동 시 randomBytes(32).toString('hex') 채움.
+   *  timingSafeEqual 로 비교. UI "재생성" 시 새 값 저장.
+   *  설정 UI 에 표시만, 사용자 직접 입력 금지. */
+  jiraWebhookToken: string;
+}
+```
+
+**§20.12.A 의 `AppSettings.jiraWebhookSecret` 선언은 철회**. `AppSettings` 에는 추가 필드 없음 — `jiraWebhookToken` 은 StoreSchema 최상위.
+
+**store-migrate v2→v3 에서:**
+```typescript
+import * as crypto from 'crypto';
+// ...
+jiraWebhookToken: v2.jiraWebhookToken ?? crypto.randomBytes(32).toString('hex'),
+```
+
+**JiraWebhookController 재정정**:
+```typescript
+export interface JiraWebhookController {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  readonly token: string;           // secret → **token** (store 에서 주입)
+  readonly localUrl: string;        // http://127.0.0.1:9876/jira-webhook/<token>
+  rotateToken(): Promise<string>;   // rotateSecret → rotateToken (새 랜덤 생성 + store 저장 + 반환)
+}
+export function createJiraWebhookServer(args: {
+  port: number;
+  token: string;                    // 생성자가 store 에서 주입
+  onEvent: (ev: JiraEvent) => void;
+  onTokenRotate: (newToken: string) => Promise<void>;  // store 저장 콜백
+}): JiraWebhookController;
+```
+
+### 20.13.I2 Jira 폴링 격리 — §20 에 명시 추가
+
+`src/main/poller.ts` 확장 규칙 (필수):
+- 매 tick 메인 루프는 Git 프로바이더 배열 + Jira 프로바이더 배열을 **하나의 `Promise.allSettled`** 로 감싼다.
+- 각 결과는 per-provider 헬스로 축적 → `ConnectionHealth` / `JiraConnectionHealth` 분리 필드로 상태 반영.
+- 어느 한 프로바이더가 reject 해도 **다른 프로바이더의 이벤트 방출은 정상 진행**.
+- Jira 실패가 Git 토스트/리스트에 영향 없도록 격리 (Reviewer Minor #2 반영).
+
+의사코드:
+```typescript
+const gitTasks = gitProviders.map(p => pollOne(p));
+const jiraTasks = jiraProviders.map(p => pollJira(p));
+const results = await Promise.allSettled([...gitTasks, ...jiraTasks]);
+// results 순회하며 health 갱신 + 성공분만 이벤트 방출
+```
+
+### 20.13.I3 projectFilter Jira 키 포맷 — 변경 (정정)
+
+**정정**: §20.12.E 의 Jira filter 키 포맷을 team-lead 결정대로 변경.
+
+확정:
+- **Git key (변경 없음)**: `${gitConfigId}::${providerType}::${projectId}` (3-part)
+- **Jira key (변경)**: `${jiraConfigId}::jira::${projectKey}` (3-part, 중간 segment 고정값 `'jira'`)
+  - ~~`jira::${jiraConfigId}::${projectKey}`~~ (§20.12.E 원안) 철회.
+
+**정정 이유**: 중간 segment 위치에 고정 discriminator 를 둠으로써 Git key 와 동일한 `split('::')[1]` 판별 자리를 공유. `providerType` 자리에 `'jira'` 를 놓는 방식이 구조적 대칭성 ↑.
+
+`ProjectFilter.projectKey` JSDoc 최종:
+```typescript
+/**
+ * Git: `${gitConfigId}::${providerType}::${projectId}` (3-part, providerType='gitlab'|'github')
+ * Jira: `${jiraConfigId}::jira::${projectKey}` (3-part, 중간 segment 고정값 'jira')
+ * 판별: key.split('::')[1] === 'jira' 이면 Jira filter.
+ * ReviewItemSummary.id (4-part) 와 다름 — itemId 불포함.
+ */
+projectKey: string;
+```
+
+**헬퍼 함수 정정** (`ipc-project-filters.ts`):
+```typescript
+export function isJiraFilterKey(key: string): boolean {
+  return key.split('::')[1] === 'jira';
+}
+export function gitFilterKeyFromItem(item: ReviewItemSummary): string {
+  return `${item.gitConfigId}::${item.providerType}::${item.projectId}`;
+}
+export function jiraFilterKey(jiraConfigId: string, projectKey: string): string {
+  return `${jiraConfigId}::jira::${projectKey}`;
+}
+```
+
+### 20.13.I4 브랜치명 한도 분리 — slug vs 전체
+
+**정정**: §20.7 / §20.12.C 의 "120자" 규정을 team-lead 결정대로 분리.
+
+확정 규격:
+- **`BRANCH_NAME_MAX_SLUG_LEN = 40`**: slug **부분만** 의 최대 길이. JSDoc 에 명시:
+  ```typescript
+  /** slug 부분 한도. 전체 브랜치명이 아님.
+   *  전체 한도는 Git 기본값 255자. */
+  export const BRANCH_NAME_MAX_SLUG_LEN = 40;
+  ```
+- **전체 브랜치명 한도**: Git 기본값 **255자** (대부분의 호스팅 동일).
+  ```typescript
+  export const BRANCH_NAME_MAX_TOTAL_LEN = 255;
+  ```
+- 기존 §20.12.C 의 "≤120자"는 보수적 권장값이었음 → 실제 엔진 한도 255자로 완화, 단 slug 생성기는 40자 유지.
+- `BRANCH_NAME_MAX_LEN` 상수 (§20.2 의 `40` 값) 는 **`BRANCH_NAME_MAX_SLUG_LEN`** 으로 **rename**. 기존 이름은 `@deprecated` 주석 + alias export 로 호환.
+
+최종 sanitize 규칙:
+- slug: `[a-zA-Z0-9_-]` 만, 길이 ≤ `BRANCH_NAME_MAX_SLUG_LEN` (40).
+- 전체 branchName: `[a-zA-Z0-9/_-]` 만, 슬래시 ≤2, 첫글자 영문자, 길이 ≤ `BRANCH_NAME_MAX_TOTAL_LEN` (255).
+- 금지문자/패턴 (기존 §20.12.C 유지): `..`, `~`, `^`, `:`, `?`, `*`, `[`, `\`, 공백, `//`, trailing `.`, `.lock`, leading `-`.
+
+### 20.13.I5 GitHub Reply 한계 — 명시 추가
+
+**추가 (§20.4.3 GitHub 매핑에 보강)**:
+
+**GitHub `postReply` 는 review thread(diff 코멘트)에만 적용 가능.** 일반 issue comment (PR 페이지 하단 토론)에는 "reply 전용 API" 가 없음.
+
+구현 규칙:
+1. `CommentReplyPayload.discussionId` 가 **review comment id** 로 해석 가능할 때만 GitHub reply API 호출:
+   `POST /repos/:owner/:repo/pulls/:number/comments/:comment_id/replies`
+2. 일반 issue comment 에 대한 reply 요청 시 → **quote 형태 새 comment 로 대체 fallback**:
+   - body 를 `> @original_author: <원문 첫 3줄>\n\n<사용자 입력>` 로 가공.
+   - `POST /repos/:owner/:repo/issues/:number/comments` 로 새 comment 작성.
+   - provider 내부에서 discussionId 가 review comment 인지 issue comment 인지 판별 (예: GitHub API 가 review comment id 는 `pulls/.../comments` 응답에 있고 issue comment id 는 `issues/.../comments` 에 있음 — 호출 측이 어느 컨텍스트에서 얻었는지 기억 필요).
+3. GitLab 은 모든 discussion 이 reply 가능 (영향 없음).
+
+`CommentReplyPayload` 에 컨텍스트 힌트 추가 (선택):
+```typescript
+export interface CommentReplyPayload extends CommentPostPayload {
+  discussionId: string;
+  /** GitHub 전용 힌트 — discussionId 가 review thread 인지 issue comment 인지 판별용.
+   *  undefined 이면 provider 가 추정(review thread 우선 시도, 404 시 issue quote 로 fallback). */
+  threadContext?: 'review_thread' | 'issue_comment';
+}
+```
+
+UI 영향: review.ts/list.ts 에서 reply 버튼 렌더링 시 원본 댓글의 컨텍스트를 같이 전달하도록 frontend 에 공지.
+
+### 20.13 영향 정리 (backend 구현 진입 시 체크리스트)
+
+- [ ] `types.ts`: `ItemEventKind` 에 v3 5개 literal 직접 union. `ItemEventKindV3` 삭제.
+- [ ] `types.ts`: `ItemEvent.kind: ItemEventKind` (단일).
+- [ ] `types.ts` 또는 `types-v3.ts`: `AppSettings.jiraWebhookSecret` **삭제** (추가 안 함). `StoreSchema.jiraWebhookToken: string` 추가.
+- [ ] `store-migrate`: `jiraWebhookToken ?? crypto.randomBytes(32).toString('hex')` 초기화.
+- [ ] `types-v3.ts`: `ProjectFilter.projectKey` JSDoc 을 §20.13.I3 규격으로.
+- [ ] `ipc-project-filters.ts`: `jiraFilterKey()` 반환 포맷 `${id}::jira::${pkey}` 로.
+- [ ] `constants.ts`: `BRANCH_NAME_MAX_LEN` → `BRANCH_NAME_MAX_SLUG_LEN` rename + deprecated alias. `BRANCH_NAME_MAX_TOTAL_LEN = 255` 추가.
+- [ ] `ipc-branch.ts`: sanitize 규칙에 slug/전체 한도 분리 적용.
+- [ ] `jira-webhook-server.ts`: 필드명 `token` (store 주입), `rotateToken()`, `onTokenRotate` 콜백.
+- [ ] `poller.ts`: `Promise.allSettled([...git, ...jira])` 단일 배열 격리.
+- [ ] `github-provider.ts`: `postReply` 에 review_thread / issue_comment 분기 + issue quote fallback.
+
+---
+
+STATUS: DONE
+PHASE: 1 (v3 확장 설계 최종 확정)
+REVISION: 10 (team-lead 결정 반영) — C1/C2/C3 Critical + I1~I5 Important 전부 반영. §20.12 일부 항목 정정(§20.13 이 최종 기준).
+NEXT:
+- **backend**: §20.13 끝부분 체크리스트 11개 항목 먼저 반영 → §20.11 인수 조건대로 17개 파일 구현. 타입·IPC 계약 잠금 상태.
+- **frontend**: §20.13.I5 에 따라 reply 버튼이 review thread / issue comment 컨텍스트 구분해서 payload 구성. §20.13.I4 에 따라 slug 검증 UI 는 40자 유지.
+- **reviewer**: §20.12.I 체크리스트 + §20.13 변경분 (token 필드명, Jira key 포맷, 한도 분리, GitHub reply fallback) 반영해 Phase 4 통합 검증.

@@ -29,6 +29,21 @@ function buildTitle(item: ReviewItemSummary, reason: NotificationReason): string
       return `${prefix} 리뷰 요청: ${typeLabel} #${item.itemId}`;
     case 'new_comments':
       return `${prefix} 새 댓글: ${typeLabel} #${item.itemId}`;
+    // v3 reasons — Step 11에서 상세 템플릿 구현. 기본 문구로 fallback.
+    case 'pipeline_finished':
+      return `${prefix} 파이프라인 완료: ${typeLabel} #${item.itemId}`;
+    case 'mr_approved':
+      return `${prefix} 승인됨: ${typeLabel} #${item.itemId}`;
+    case 'changes_requested':
+      return `${prefix} 변경 요청: ${typeLabel} #${item.itemId}`;
+    case 'issue_assigned':
+      return `${prefix} 이슈 할당: #${item.itemId}`;
+    case 'issue_mentioned':
+      return `${prefix} 이슈 멘션: #${item.itemId}`;
+    case 'jira_issue_assigned':
+      return `[Jira] 이슈 할당: #${item.itemId}`;
+    case 'jira_issue_created':
+      return `[Jira] 새 이슈: #${item.itemId}`;
   }
 }
 
@@ -53,6 +68,15 @@ function buildBody(
       const mentionTag = mentioned ? '@ 멘션됨 · ' : '';
       return `${header}\n${mentionTag}새 댓글 ${count}개 — ${authorLine}${preview}`;
     }
+    // v3 reasons — Step 11에서 상세화 예정
+    case 'pipeline_finished':
+    case 'mr_approved':
+    case 'changes_requested':
+    case 'issue_assigned':
+    case 'issue_mentioned':
+    case 'jira_issue_assigned':
+    case 'jira_issue_created':
+      return header;
   }
 }
 

@@ -5,6 +5,8 @@
 import type { AppSettings } from '../../shared/types';
 import { initGitTab, flushGitPendingChanges, hasUnsavedGitChanges } from './settings-git';
 import { initAITab, flushAIPendingChanges, hasUnsavedAIChanges } from './settings-ai';
+import { initJiraTab, flushJiraPendingChanges, hasUnsavedJiraChanges } from './settings-jira';
+import { initProjectFiltersTab, flushProjectFiltersPendingChanges, hasUnsavedProjectFiltersChanges } from './settings-project-filters';
 
 // ── DOM 참조 ─────────────────────────────────────────────────
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -15,8 +17,12 @@ const $ = <T extends HTMLElement>(id: string): T => {
 
 const tabGit       = $<HTMLButtonElement>('tab-git');
 const tabAi        = $<HTMLButtonElement>('tab-ai');
+const tabJira      = $<HTMLButtonElement>('tab-jira');
+const tabFilters   = $<HTMLButtonElement>('tab-filters');
 const panelGit     = $<HTMLElement>('panel-git');
 const panelAi      = $<HTMLElement>('panel-ai');
+const panelJira    = $<HTMLElement>('panel-jira');
+const panelFilters = $<HTMLElement>('panel-filters');
 
 const pollInput       = $<HTMLInputElement>('poll-interval');
 const pollValue       = $<HTMLSpanElement>('poll-value');
@@ -28,22 +34,30 @@ const saveBtn      = $<HTMLButtonElement>('btn-save');
 const cancelBtn    = $<HTMLButtonElement>('btn-cancel');
 
 // ── 탭 전환 ──────────────────────────────────────────────────
-type TabName = 'git' | 'ai';
+type TabName = 'git' | 'ai' | 'jira' | 'filters';
+
+const tabMap: Record<TabName, { btn: HTMLButtonElement; panel: HTMLElement }> = {
+  git:     { btn: tabGit,     panel: panelGit     },
+  ai:      { btn: tabAi,      panel: panelAi      },
+  jira:    { btn: tabJira,    panel: panelJira    },
+  filters: { btn: tabFilters, panel: panelFilters },
+};
 
 function switchTab(name: TabName): void {
-  const gitActive = name === 'git';
-  tabGit.classList.toggle('is-active', gitActive);
-  tabAi.classList.toggle('is-active', !gitActive);
-  tabGit.setAttribute('aria-selected', String(gitActive));
-  tabAi.setAttribute('aria-selected', String(!gitActive));
-  panelGit.classList.toggle('is-active', gitActive);
-  panelAi.classList.toggle('is-active', !gitActive);
-  panelGit.hidden = !gitActive;
-  panelAi.hidden  = gitActive;
+  for (const key of Object.keys(tabMap) as TabName[]) {
+    const isActive = key === name;
+    const { btn, panel } = tabMap[key];
+    btn.classList.toggle('is-active', isActive);
+    btn.setAttribute('aria-selected', String(isActive));
+    panel.classList.toggle('is-active', isActive);
+    panel.hidden = !isActive;
+  }
 }
 
-tabGit.addEventListener('click', (): void => switchTab('git'));
-tabAi.addEventListener('click',  (): void => switchTab('ai'));
+tabGit.addEventListener('click',     (): void => switchTab('git'));
+tabAi.addEventListener('click',      (): void => switchTab('ai'));
+tabJira.addEventListener('click',    (): void => switchTab('jira'));
+tabFilters.addEventListener('click', (): void => switchTab('filters'));
 
 // ── 폴링 슬라이더 ────────────────────────────────────────────
 function renderPollValue(sec: number): void {
@@ -71,6 +85,14 @@ async function save(): Promise<void> {
     const ai = flushAIPendingChanges();
     await window.electronAPI.saveAIConfig({ ai });
 
+    // Jira 연결 저장
+    const jira = flushJiraPendingChanges();
+    await window.electronAPI.saveJiraConnections({ jiraConnections: jira.connections });
+
+    // 프로젝트 필터 저장
+    const projectFilters = flushProjectFiltersPendingChanges();
+    await window.electronAPI.saveProjectFilters({ projectFilters });
+
     // 공통 설정 저장 (기존 저장된 settings 기반으로 덮어쓰기)
     const current = await window.electronAPI.loadSettings();
     const merged: AppSettings = {
@@ -81,6 +103,10 @@ async function save(): Promise<void> {
       notificationEnabled: notifInput.checked,
       commentNotificationsEnabled: commentNotifInput.checked,
       launchOnStartup: startupInput.checked,
+      jiraConnections: jira.connections,
+      jiraWebhookEnabled: jira.webhookEnabled,
+      jiraWebhookPort: jira.webhookPort,
+      projectFilters,
     };
     await window.electronAPI.saveSettings({ settings: merged });
     window.close();
@@ -115,7 +141,11 @@ function showInlineError(id: string, message: string): void {
 
 saveBtn.addEventListener('click', (): void => { void save(); });
 cancelBtn.addEventListener('click', (): void => {
-  if (hasUnsavedGitChanges() || hasUnsavedAIChanges()) {
+  const anyDirty = hasUnsavedGitChanges()
+    || hasUnsavedAIChanges()
+    || hasUnsavedJiraChanges()
+    || hasUnsavedProjectFiltersChanges();
+  if (anyDirty) {
     const ok = window.confirm('저장하지 않은 변경 사항이 있습니다. 창을 닫을까요?');
     if (!ok) return;
   }
@@ -130,10 +160,13 @@ document.addEventListener('keydown', (e: KeyboardEvent): void => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !saveBtn.disabled) {
     void save();
   }
-  // 탭 전환 단축키 (Ctrl/Cmd + 1/2)
-  if ((e.ctrlKey || e.metaKey) && (e.key === '1' || e.key === '2')) {
+  // 탭 전환 단축키 (Ctrl/Cmd + 1~4)
+  if ((e.ctrlKey || e.metaKey) && ['1','2','3','4'].includes(e.key)) {
     e.preventDefault();
-    switchTab(e.key === '1' ? 'git' : 'ai');
+    const order: TabName[] = ['git', 'ai', 'jira', 'filters'];
+    const idx = Number(e.key) - 1;
+    const target = order[idx];
+    if (target) switchTab(target);
   }
 });
 
@@ -150,12 +183,24 @@ async function bootstrap(): Promise<void> {
 
     await initGitTab(settings.gitConnections);
     initAITab(settings.ai);
+    await initJiraTab(settings);
+    await initProjectFiltersTab(settings);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     showLoadError(`설정 로드 실패: ${msg}`);
     // 빈 값으로도 UI는 동작하도록 초기화
     await initGitTab([]);
     initAITab({ type: 'claude-cli' });
+    const fallback: AppSettings = {
+      gitConnections: [],
+      ai: { type: 'claude-cli' },
+      pollIntervalMs: 30_000,
+      notificationEnabled: true,
+      commentNotificationsEnabled: true,
+      launchOnStartup: false,
+    };
+    await initJiraTab(fallback);
+    await initProjectFiltersTab(fallback);
   }
 }
 

@@ -1,5 +1,5 @@
-// main/store-migrate.ts — v1 → v2 AppSettings 마이그레이션
-import { randomUUID } from 'node:crypto';
+// main/store-migrate.ts — v1 → v2 → v3 AppSettings 마이그레이션
+import { randomBytes, randomUUID } from 'node:crypto';
 import log from 'electron-log';
 import type Store from 'electron-store';
 import type {
@@ -9,7 +9,10 @@ import type {
   StoreSchema,
   V1AppSettings,
 } from '../shared/types';
-import { DEFAULT_POLL_INTERVAL_MS } from '../shared/constants';
+import {
+  DEFAULT_JIRA_WEBHOOK_PORT,
+  DEFAULT_POLL_INTERVAL_MS,
+} from '../shared/constants';
 
 const DEFAULT_AI: AIConfig = { type: 'claude-cli' };
 
@@ -116,4 +119,49 @@ export function migrateStoreV1ToV2(store: Store<StoreSchema>): void {
   log.info(
     `[migrate] completed — gitConnections=${v2Settings.gitConnections.length}`,
   );
+}
+
+// ── v2 → v3 마이그레이션 ────────────────────────────────────
+/**
+ * v3 확장 필드를 기본값으로 backfill (in-place).
+ * AppSettings 에 jiraConnections/jiraWebhookEnabled 등이 없으면 채움.
+ * StoreSchema top-level 도 seenJiraIssueIds/recentJiraIssues/... 가 없으면 빈 배열로 초기화.
+ * 기존 v2 데이터는 그대로 보존.
+ */
+export function migrateStoreV2ToV3(store: Store<StoreSchema>): void {
+  const s = store.get('settings') as Partial<AppSettings> | undefined;
+  if (s && typeof s === 'object') {
+    let changed = false;
+    const next: AppSettings = { ...(s as AppSettings) };
+    if (!('jiraConnections' in s)) { next.jiraConnections = []; changed = true; }
+    if (!('jiraWebhookEnabled' in s)) { next.jiraWebhookEnabled = false; changed = true; }
+    if (!('jiraWebhookPort' in s)) { next.jiraWebhookPort = DEFAULT_JIRA_WEBHOOK_PORT; changed = true; }
+    if (!('projectFilters' in s)) { next.projectFilters = []; changed = true; }
+    if (!('pipelineNotificationsEnabled' in s)) { next.pipelineNotificationsEnabled = true; changed = true; }
+    if (!('approvalNotificationsEnabled' in s)) { next.approvalNotificationsEnabled = true; changed = true; }
+    if (changed) {
+      store.set('settings', next);
+      log.info('[migrate] v3 AppSettings backfilled');
+    }
+  }
+
+  const rawSeenJira = store.get('seenJiraIssueIds') as unknown;
+  if (!Array.isArray(rawSeenJira)) store.set('seenJiraIssueIds', []);
+
+  const rawRecentJira = store.get('recentJiraIssues') as unknown;
+  if (!Array.isArray(rawRecentJira)) store.set('recentJiraIssues', []);
+
+  const rawSeenPipe = store.get('seenPipelineIds') as unknown;
+  if (!Array.isArray(rawSeenPipe)) store.set('seenPipelineIds', []);
+
+  const rawSeenApp = store.get('seenApprovalItemIds') as unknown;
+  if (!Array.isArray(rawSeenApp)) store.set('seenApprovalItemIds', []);
+
+  // jiraWebhookToken — 없거나 64자 hex 형식 아니면 재생성 (§20.13.I1)
+  const rawToken = store.get('jiraWebhookToken') as unknown;
+  if (typeof rawToken !== 'string' || !/^[0-9a-f]{64}$/.test(rawToken)) {
+    const fresh = randomBytes(32).toString('hex');
+    store.set('jiraWebhookToken', fresh);
+    log.info('[migrate] jiraWebhookToken generated (64-char hex)');
+  }
 }

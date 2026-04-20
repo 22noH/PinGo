@@ -23,7 +23,11 @@ import {
 import { createStore } from './store';
 import { createTray, TrayController } from './tray';
 import { createPoller, PollerController, PollerSeenState } from './poller';
+import { detectV3ItemEvents } from './poller-events';
+import { createJiraBridge, JiraBridgeController } from './main-jira-bridge';
 import { sendMrNotification } from './notifier';
+import type { JiraEvent, JiraIssueSummary } from '../shared/types';
+import { JIRA_ISSUE_NEW, LIST_JIRA_UPDATED } from '../shared/constants';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { createGitProvider, GitProvider } from './providers/git/git-provider';
 import { createAppWindow, WindowDirs } from './windows';
@@ -65,6 +69,7 @@ const WIN_DIRS: WindowDirs = {
 
 let tray: TrayController | null = null;
 let poller: PollerController | null = null;
+let jiraBridge: JiraBridgeController | null = null;
 let reviewWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let listWindow: BrowserWindow | null = null;
@@ -282,6 +287,14 @@ function reconfigurePoller(
           setTrayState(s.notificationEnabled ? 'ACTIVE' : 'MUTED');
         }
       },
+      detectExtraEvents: (openItems, signal) =>
+        detectV3ItemEvents(
+          buildProviders(store.get('settings')),
+          openItems,
+          store,
+          store.get('settings'),
+          signal,
+        ),
     });
     if (providers.length > 0) poller.start();
   } else {
@@ -352,6 +365,10 @@ function bootstrap(): void {
       // 별도 재구성 불필요. 로그만 남김.
       log.info('main: AI provider config updated (re-created on next review start)');
     },
+    rebuildJira: (configs): void => {
+      log.info(`main: jira connections updated (count=${configs.length})`);
+      void jiraBridge?.reconfigure(store.get('settings'));
+    },
     onSettingsSaved: (next: AppSettings): void => {
       setTrayState(next.notificationEnabled ? 'ACTIVE' : 'MUTED');
     },
@@ -391,6 +408,25 @@ function bootstrap(): void {
     reconfigurePoller(store, store.get('settings'), seen);
   })();
 
+  // v3 — Jira bridge (polling + webhook) 기동
+  jiraBridge = createJiraBridge(store, {
+    onEvent: (ev: JiraEvent): void => {
+      const s = store.get('settings');
+      if (!s.notificationEnabled) return;
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send(JIRA_ISSUE_NEW, ev.issue);
+      }
+    },
+    onIssues: (issues: JiraIssueSummary[]): void => {
+      if (!listWindow || listWindow.isDestroyed()) return;
+      listWindow.webContents.send(LIST_JIRA_UPDATED, { issues });
+    },
+    onError: (err: Error, cfgId: string): void => {
+      log.warn(`main: jira bridge error (${cfgId.slice(0, 8)}): ${err.message.slice(0, 200)}`);
+    },
+  });
+  jiraBridge.start(store.get('settings'));
+
   if (settings.gitConnections.length === 0) {
     log.info('main: no git connections, opening settings window');
     openSettingsWindow();
@@ -422,6 +458,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   log.info('pingo: before-quit');
   poller?.stop();
+  void jiraBridge?.stop();
   tray?.destroy();
   unregisterIpcHandlers();
 });

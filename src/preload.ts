@@ -1,9 +1,11 @@
-// preload.ts — contextBridge 기반 보안 IPC 게이트웨이 (v2)
+// preload.ts — contextBridge 기반 보안 IPC 게이트웨이 (v2 + v3)
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import type {
   ReviewStartPayload,
   CommentPostPayload,
   CommentPostResult,
+  CommentReplyPayload,
+  CommentReplyResult,
   SettingsSavePayload,
   SettingsLoadResult,
   ReviewChunkPayload,
@@ -21,6 +23,18 @@ import type {
   OllamaModelsFetchPayload,
   OllamaModelsFetchResult,
   ListLoadResult,
+  JiraConnectionsLoadResult,
+  JiraConnectionsSavePayload,
+  JiraConnectionTestPayload,
+  JiraConnectionTestResult,
+  JiraIssueSummary,
+  JiraListLoadResult,
+  BranchCreatePayload,
+  BranchCreateResult,
+  BranchListPayload,
+  BranchListResult,
+  ProjectFiltersLoadResult,
+  ProjectFiltersSavePayload,
 } from './shared/types';
 import {
   REVIEW_START,
@@ -29,6 +43,7 @@ import {
   REVIEW_DONE,
   REVIEW_ERROR,
   COMMENT_POST,
+  COMMENT_REPLY,
   SETTINGS_SAVE,
   SETTINGS_LOAD,
   WINDOW_OPEN_MR,
@@ -50,6 +65,17 @@ import {
   LIST_OPEN_REVIEW,
   LIST_UPDATED,
   LIST_REFRESH,
+  JIRA_CONNECTIONS_LOAD,
+  JIRA_CONNECTIONS_SAVE,
+  JIRA_CONNECTION_TEST,
+  JIRA_WEBHOOK_SECRET_GET,
+  JIRA_WEBHOOK_SECRET_REGENERATE,
+  JIRA_ISSUE_NEW,
+  LIST_JIRA_UPDATED,
+  BRANCH_CREATE,
+  BRANCH_LIST,
+  PROJECT_FILTERS_LOAD,
+  PROJECT_FILTERS_SAVE,
 } from './shared/constants';
 
 export interface ElectronAPI {
@@ -106,6 +132,30 @@ export interface ElectronAPI {
   openReviewForItem: (itemId: string) => void;
   refreshList: () => void;
   onListUpdated: (cb: (payload: ListLoadResult) => void) => () => void;
+
+  // ── v3 신규 — Jira ─────────────────────────────────────
+  loadJiraConnections: () => Promise<JiraConnectionsLoadResult>;
+  saveJiraConnections: (payload: JiraConnectionsSavePayload) => Promise<void>;
+  testJiraConnection: (payload: JiraConnectionTestPayload) => Promise<JiraConnectionTestResult>;
+  /** Main → Renderer: 새 Jira 이슈 감지 */
+  onJiraIssueNew: (cb: (issue: JiraIssueSummary) => void) => () => void;
+  /** Main → Renderer: 리스트 윈도우 Jira 섹션 업데이트 */
+  onListJiraUpdated: (cb: (payload: JiraListLoadResult) => void) => () => void;
+
+  // ── v3 신규 — 브랜치 ────────────────────────────────────
+  createBranch: (payload: BranchCreatePayload) => Promise<BranchCreateResult>;
+  listBranches: (payload: BranchListPayload) => Promise<BranchListResult>;
+
+  // ── v3 신규 — 댓글 답글 ────────────────────────────────
+  postCommentReply: (payload: CommentReplyPayload) => Promise<CommentReplyResult>;
+
+  // ── v3 신규 — 프로젝트 필터 ────────────────────────────
+  loadProjectFilters: () => Promise<ProjectFiltersLoadResult>;
+  saveProjectFilters: (payload: ProjectFiltersSavePayload) => Promise<void>;
+
+  // ── v3 신규 — Jira 웹훅 토큰 ────────────────────────────
+  getJiraWebhookSecret: () => Promise<string>;
+  regenerateJiraWebhookSecret: () => Promise<string>;
 }
 
 const api: ElectronAPI = {
@@ -233,6 +283,46 @@ const api: ElectronAPI = {
     ipcRenderer.on(LIST_UPDATED, handler);
     return (): void => { ipcRenderer.removeListener(LIST_UPDATED, handler); };
   },
+
+  // ── v3 — Jira ─────────────────────────────────────────
+  loadJiraConnections: (): Promise<JiraConnectionsLoadResult> =>
+    ipcRenderer.invoke(JIRA_CONNECTIONS_LOAD) as Promise<JiraConnectionsLoadResult>,
+  saveJiraConnections: (payload: JiraConnectionsSavePayload): Promise<void> =>
+    ipcRenderer.invoke(JIRA_CONNECTIONS_SAVE, payload) as Promise<void>,
+  testJiraConnection: (payload: JiraConnectionTestPayload): Promise<JiraConnectionTestResult> =>
+    ipcRenderer.invoke(JIRA_CONNECTION_TEST, payload) as Promise<JiraConnectionTestResult>,
+  onJiraIssueNew: (cb: (issue: JiraIssueSummary) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, issue: JiraIssueSummary): void => cb(issue);
+    ipcRenderer.on(JIRA_ISSUE_NEW, handler);
+    return (): void => { ipcRenderer.removeListener(JIRA_ISSUE_NEW, handler); };
+  },
+  onListJiraUpdated: (cb: (payload: JiraListLoadResult) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, payload: JiraListLoadResult): void => cb(payload);
+    ipcRenderer.on(LIST_JIRA_UPDATED, handler);
+    return (): void => { ipcRenderer.removeListener(LIST_JIRA_UPDATED, handler); };
+  },
+
+  // ── v3 — 브랜치 ───────────────────────────────────────
+  createBranch: (payload: BranchCreatePayload): Promise<BranchCreateResult> =>
+    ipcRenderer.invoke(BRANCH_CREATE, payload) as Promise<BranchCreateResult>,
+  listBranches: (payload: BranchListPayload): Promise<BranchListResult> =>
+    ipcRenderer.invoke(BRANCH_LIST, payload) as Promise<BranchListResult>,
+
+  // ── v3 — 댓글 답글 ────────────────────────────────────
+  postCommentReply: (payload: CommentReplyPayload): Promise<CommentReplyResult> =>
+    ipcRenderer.invoke(COMMENT_REPLY, payload) as Promise<CommentReplyResult>,
+
+  // ── v3 — 프로젝트 필터 ────────────────────────────────
+  loadProjectFilters: (): Promise<ProjectFiltersLoadResult> =>
+    ipcRenderer.invoke(PROJECT_FILTERS_LOAD) as Promise<ProjectFiltersLoadResult>,
+  saveProjectFilters: (payload: ProjectFiltersSavePayload): Promise<void> =>
+    ipcRenderer.invoke(PROJECT_FILTERS_SAVE, payload) as Promise<void>,
+
+  // ── v3 — Jira 웹훅 토큰 ──────────────────────────────
+  getJiraWebhookSecret: (): Promise<string> =>
+    ipcRenderer.invoke(JIRA_WEBHOOK_SECRET_GET) as Promise<string>,
+  regenerateJiraWebhookSecret: (): Promise<string> =>
+    ipcRenderer.invoke(JIRA_WEBHOOK_SECRET_REGENERATE) as Promise<string>,
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

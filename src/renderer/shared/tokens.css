@@ -76,6 +76,32 @@
   --diff-del-bg:  rgba(243, 139, 168, 0.12);
   --diff-del-fg:  #f38ba8;
   --diff-hunk-fg: #89b4fa;
+
+  /* v3 — Jira 브랜드 (포인트 컬러) */
+  --jira-blue:        #0052CC;
+  --jira-blue-hover:  #1a66dd;
+  --jira-blue-soft:   rgba(0, 82, 204, 0.12);
+  --jira-blue-ring:   rgba(0, 82, 204, 0.32);
+  --jira-blue-border: rgba(0, 82, 204, 0.42);
+
+  /* v3 — Jira 이슈 상태(대표 5종, 실제 매핑은 JS에서 statusCategory로 선택) */
+  --jira-status-todo-fg:    #a9adc6;
+  --jira-status-todo-bg:    rgba(108, 112, 134, 0.20);
+  --jira-status-progress-fg: #89b4fa;
+  --jira-status-progress-bg: rgba(137, 180, 250, 0.16);
+  --jira-status-done-fg:    #a6e3a1;
+  --jira-status-done-bg:    rgba(166, 227, 161, 0.16);
+  --jira-status-blocked-fg: #f38ba8;
+  --jira-status-blocked-bg: rgba(243, 139, 168, 0.16);
+  --jira-status-review-fg:  #cba6f7;
+  --jira-status-review-bg:  rgba(203, 166, 247, 0.16);
+
+  /* v3 — 이벤트 아이콘 색 (pipeline/approval) */
+  --evt-pipeline-success: var(--accent-green);
+  --evt-pipeline-failed:  var(--accent-red);
+  --evt-approved:         var(--accent-green);
+  --evt-changes-req:      var(--accent-yellow);
+  --evt-mentioned:        var(--accent-purple);
 }
 
 /* ── 리셋 ──────────────────────────────────────────────── */

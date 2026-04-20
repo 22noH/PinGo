@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
   <link rel="stylesheet" href="../shared/components-v2.css">
+  <link rel="stylesheet" href="../shared/components-v3.css">
+  <link rel="stylesheet" href="../shared/components-v3-branch.css">
   <link rel="stylesheet" href="../shared/markdown.css">
   <link rel="stylesheet" href="../shared/diff.css">
   <link rel="stylesheet" href="./review.css">
@@ -101,6 +103,18 @@
           </div>
         </div>
       </section>
+    </section>
+
+    <!-- ── 토론 영역 (discussions 있을 때만 표시) ───── -->
+    <section id="review-discussions" class="review-panel card" hidden style="margin-top: var(--space-4);">
+      <header class="card-header">
+        <h2 style="font-size: var(--fs-md); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;">
+          토론 (<span id="discussions-count">0</span>)
+        </h2>
+      </header>
+      <div class="card-body">
+        <ul id="thread-list" class="thread-list"></ul>
+      </div>
     </section>
 
     <!-- ── 푸터 버튼 ─────────────────────────────────── -->

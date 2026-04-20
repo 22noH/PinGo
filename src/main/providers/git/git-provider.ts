@@ -1,9 +1,18 @@
-// providers/git/git-provider.ts — GitProvider interface + factory
+// providers/git/git-provider.ts — GitProvider interface + factory (v2 + v3)
 import type {
+  ApprovalStatus,
+  BranchCreatePayload,
+  BranchCreateResult,
+  BranchListPayload,
+  BranchListResult,
   CommentPostResult,
+  CommentReplyPayload,
+  CommentReplyResult,
   ConnectionTestResult,
   Discussion,
   GitConfig,
+  GitIssue,
+  PipelineInfo,
   ReviewItemSummary,
   ReviewItemWithChanges,
 } from '../../../shared/types';
@@ -24,6 +33,22 @@ export interface GitProvider {
   testConnection(): Promise<ConnectionTestResult>;
   /** 현재 사용자가 이 item의 리뷰어에 포함되어 있는지 (item.reviewers 기반) */
   isCurrentUserReviewer(item: ReviewItemSummary): boolean;
+
+  // ── v3 확장 (optional — provider 가 지원할 때만 구현) ─────────
+  /** 최근 완료된 파이프라인 목록 */
+  fetchRecentPipelines?(signal?: AbortSignal): Promise<PipelineInfo[]>;
+  /** 특정 MR/PR 의 승인 상태 */
+  fetchApprovalStatus?(item: ReviewItemSummary, signal?: AbortSignal): Promise<ApprovalStatus>;
+  /** 나에게 할당된 이슈 목록 */
+  fetchAssignedIssues?(signal?: AbortSignal): Promise<GitIssue[]>;
+  /** 나를 멘션한 이슈 목록 */
+  fetchMentionedIssues?(signal?: AbortSignal): Promise<GitIssue[]>;
+  /** 브랜치 생성 */
+  createBranch?(payload: BranchCreatePayload): Promise<BranchCreateResult>;
+  /** 브랜치 목록 (base branch 선택용) */
+  listBranches?(payload: BranchListPayload): Promise<BranchListResult>;
+  /** 기존 토론 스레드에 답글 */
+  postReply?(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentReplyResult>;
 }
 
 export function createGitProvider(config: GitConfig): GitProvider {

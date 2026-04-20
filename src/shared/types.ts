@@ -1,4 +1,9 @@
 // shared/types.ts — v2 타입 정의 (strict mode, no `any` allowed)
+// v3 확장 타입은 types-jira.ts / types-v3.ts 에 분리 — 여기서는 re-export만.
+// v1 raw + deprecated alias 는 types-compat.ts 로 분리.
+export * from './types-jira';
+export * from './types-v3';
+export * from './types-compat';
 
 // ── Git Provider (v2) ───────────────────────────────────────
 export type GitProviderType = 'gitlab' | 'github';
@@ -158,7 +163,11 @@ export interface ConnectionHealth {
   error?: string;
 }
 
-// ── AppSettings (v2) ────────────────────────────────────────
+// ── AppSettings (v2 + v3 확장) ──────────────────────────────
+/**
+ * v3 확장 필드는 모두 optional. v2 저장 데이터도 읽힐 수 있도록 하위호환 유지.
+ * 런타임 기본값은 store-migrate.ts 의 DEFAULT_V2_SETTINGS + backfillV2Fields()/migrateStoreV2ToV3() 가 보장.
+ */
 export interface AppSettings {
   gitConnections: GitConfig[]; // [] 이면 미설정 상태
   ai: AIConfig;                // 기본값: { type: 'claude-cli' }
@@ -167,16 +176,47 @@ export interface AppSettings {
   /** 내가 작성자/리뷰어/멘션인 MR의 새 댓글 알림 ON/OFF (기본 true) */
   commentNotificationsEnabled: boolean;
   launchOnStartup: boolean;    // Windows 로그인 시 자동 시작
+
+  // ── v3 확장 (optional) ────────────────────────────────
+  /** Jira 연결 목록 (기본: []) */
+  jiraConnections?: import('./types-jira').JiraConfig[];
+  /** 로컬 Jira 웹훅 수신기 활성화 (기본: false — 폴링만 사용) */
+  jiraWebhookEnabled?: boolean;
+  /** Jira 웹훅 수신 포트 (기본: 9876) */
+  jiraWebhookPort?: number;
+  /** 프로젝트별 알림 필터 (기본: []) */
+  projectFilters?: import('./types-v3').ProjectFilter[];
+  /** 파이프라인(CI/CD) 완료 알림 ON/OFF (기본: true) */
+  pipelineNotificationsEnabled?: boolean;
+  /** MR 승인/변경요청 알림 ON/OFF (기본: true) */
+  approvalNotificationsEnabled?: boolean;
 }
 
-// ── 폴러 이벤트 종류 ────────────────────────────────────────
-export type ItemEventKind = 'new_item' | 'reviewer_assigned' | 'new_comments';
+// ── 폴러 이벤트 종류 (v2 3개 + v3 5개) ─────────────────────
+export type ItemEventKind =
+  | 'new_item'
+  | 'reviewer_assigned'
+  | 'new_comments'
+  // v3 확장
+  | 'pipeline_finished'
+  | 'mr_approved'
+  | 'changes_requested'
+  | 'issue_assigned'
+  | 'issue_mentioned';
 
 export interface ItemEvent {
   kind: ItemEventKind;
   item: ReviewItemSummary;
   /** kind === 'new_comments' 일 때만 채워짐 — 이번 tick에 감지된 새 댓글 */
   newNotes?: DiscussionNote[];
+  /** kind === 'pipeline_finished' 일 때만 (v3) */
+  pipelineInfo?: import('./types-v3').PipelineInfo;
+  /** kind === 'mr_approved' / 'changes_requested' 일 때만 (v3) */
+  approvalStatus?: import('./types-v3').ApprovalStatus;
+  /** kind === 'issue_assigned' / 'issue_mentioned' 일 때만 (v3).
+   *  이 경우 `item` 은 플레이스홀더 — 소비측은 `issue` 를 우선 사용.
+   *  (하위호환: 기존 `item: ReviewItemSummary` 필드 제거 불가) */
+  issue?: import('./types-v3').GitIssue;
 }
 
 // ── StoreSchema (v2) ────────────────────────────────────────
@@ -200,6 +240,22 @@ export interface StoreSchema {
   /** item id → 사용자 인터랙션 기록 */
   interactions: Record<string, ItemInteraction>;
   recentItems: ReviewItemSummary[];           // 최대 5개
+
+  // ── v3 확장 (optional) — v2 저장소 호환 ────────────────
+  /** 이미 알림 보낸 Jira 이슈 id 집합 (`${jiraConfigId}::${issueKey}`) */
+  seenJiraIssueIds?: string[];
+  /** 최근 Jira 이슈 (최대 20개) */
+  recentJiraIssues?: import('./types-jira').JiraIssueSummary[];
+  /** 이미 알림 보낸 pipeline id 집합 (`${gitConfigId}::${projectId}::${pipelineId}`) */
+  seenPipelineIds?: string[];
+  /** 이미 approve/changes_requested 알림 보낸 MR id 집합 (ReviewItemSummary.id 포맷) */
+  seenApprovalItemIds?: string[];
+  /**
+   * Jira webhook 인증 토큰 — 첫 기동 시 randomBytes(32).toString('hex') 로 채움.
+   * timingSafeEqual 비교용. UI "재생성" 시 새 값 저장.
+   * 설정 UI 에 표시만, 사용자 직접 입력 금지. (§20.13.I1)
+   */
+  jiraWebhookToken?: string;
 }
 
 // ── IPC 페이로드 타입 ───────────────────────────────────────
@@ -236,8 +292,18 @@ export interface NotificationClickPayload {
   itemId: string; // ReviewItemSummary.id
 }
 
-/** 알림 이유 — 토스트 body에 표시 */
-export type NotificationReason = 'new_item' | 'reviewer_assigned' | 'new_comments';
+/** 알림 이유 — 토스트 body에 표시 (v3: git 8종 + jira 2종) */
+export type NotificationReason =
+  | 'new_item'
+  | 'reviewer_assigned'
+  | 'new_comments'
+  | 'pipeline_finished'
+  | 'mr_approved'
+  | 'changes_requested'
+  | 'issue_assigned'
+  | 'issue_mentioned'
+  | 'jira_issue_assigned'
+  | 'jira_issue_created';
 
 /** 목록 윈도우 초기 로드/업데이트 페이로드 */
 export interface ListLoadResult {
@@ -317,26 +383,4 @@ export interface SettingsLoadResult {
   settings: AppSettings;
 }
 
-// ── 하위 호환 (v1 코드 마이그레이션 중 사용) ────────────────
-/** @deprecated v2에서 `ReviewItemSummary` 사용 */
-export type MergeRequestSummary = ReviewItemSummary;
-/** @deprecated v2에서 `ReviewItemWithChanges` 사용 */
-export type MergeRequestWithChanges = ReviewItemWithChanges;
-/** @deprecated v2에서 `ReviewItem` 사용 */
-export type MergeRequest = ReviewItem;
-
-// ── v1 raw 스키마 (마이그레이션 감지용, 내부 전용) ──────────
-export interface V1AppSettings {
-  gitlabUrl: string;
-  token: string;
-  userId: number;
-  pollIntervalMs: number;
-  notificationEnabled: boolean;
-  includeMentioned?: boolean;
-}
-
-export interface V1StoreSchema {
-  settings: V1AppSettings;
-  seenMrIds: number[];
-  recentMrs: unknown[];
-}
+// ── 하위 호환 / v1 raw 스키마는 types-compat.ts 로 분리. types.ts 상단 re-export 로 노출.

@@ -14,6 +14,7 @@ import type {
   ReviewItemWithChanges,
 } from '../../../shared/types';
 import type { GitProvider } from './git-provider';
+import * as V3 from './github-provider-v3';
 
 const GITHUB_API = 'https://api.github.com';
 
@@ -296,6 +297,29 @@ export class GitHubProvider implements GitProvider {
     } catch (err) {
       return { success: false, error: classifyGitHubError(err).message };
     }
+  }
+
+  // ── v3 확장 — 별도 파일 delegation ───────────────────────
+  fetchRecentPipelines(signal?: AbortSignal): Promise<import('../../../shared/types').PipelineInfo[]> {
+    return V3.fetchRecentPipelines(this.client, signal);
+  }
+  fetchApprovalStatus(item: ReviewItemSummary, signal?: AbortSignal): Promise<import('../../../shared/types').ApprovalStatus> {
+    return V3.fetchApprovalStatus(this.client, item, signal);
+  }
+  fetchAssignedIssues(signal?: AbortSignal): Promise<import('../../../shared/types').GitIssue[]> {
+    return V3.fetchAssignedIssues(this.client, this.config, signal);
+  }
+  fetchMentionedIssues(signal?: AbortSignal): Promise<import('../../../shared/types').GitIssue[]> {
+    return V3.fetchMentionedIssues(this.client, this.config, signal);
+  }
+  createBranch(payload: import('../../../shared/types').BranchCreatePayload): Promise<import('../../../shared/types').BranchCreateResult> {
+    return V3.createBranch(this.client, payload);
+  }
+  listBranches(payload: import('../../../shared/types').BranchListPayload): Promise<import('../../../shared/types').BranchListResult> {
+    return V3.listBranches(this.client, payload);
+  }
+  postReply(item: ReviewItemSummary, payload: import('../../../shared/types').CommentReplyPayload): Promise<CommentPostResult> {
+    return V3.postReply(this.client, item, payload);
   }
 
   private async searchIssues(

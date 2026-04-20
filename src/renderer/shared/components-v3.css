@@ -1,0 +1,203 @@
+/* ============================================================
+   pingo — v3 공통 컴포넌트 (Jira + 이벤트)
+   Jira 포인트 버튼, 이슈 상태/우선순위, 이벤트 배지, Jira 섹션.
+   (답글·브랜치 모달은 components-v3-branch.css 참고)
+   ============================================================ */
+
+/* ── Jira 포인트 버튼 ───────────────────────────────────── */
+.btn-jira {
+  background: var(--jira-blue);
+  color: #ffffff;
+  font-weight: 600;
+  border-color: transparent;
+}
+.btn-jira:hover:not(:disabled) {
+  background: var(--jira-blue-hover);
+  box-shadow: 0 0 0 3px var(--jira-blue-ring);
+}
+
+/* Provider 배지 확장 (Jira) — components-v2 .provider-badge 와 동일 구조 */
+.provider-badge.is-jira {
+  color: #ffffff;
+  background: var(--jira-blue);
+  border-color: var(--jira-blue-border);
+}
+
+/* ── 이벤트 뱃지 (리스트/알림에서 사용) ───────────────────── */
+.event-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.event-badge .event-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.event-badge.is-pipeline-success { color: var(--evt-pipeline-success); background: rgba(166, 227, 161, 0.12); border-color: rgba(166, 227, 161, 0.30); }
+.event-badge.is-pipeline-failed  { color: var(--evt-pipeline-failed);  background: rgba(243, 139, 168, 0.12); border-color: rgba(243, 139, 168, 0.30); }
+.event-badge.is-approved         { color: var(--evt-approved);         background: rgba(166, 227, 161, 0.16); border-color: rgba(166, 227, 161, 0.40); }
+.event-badge.is-changes-req      { color: var(--evt-changes-req);      background: rgba(249, 226, 175, 0.16); border-color: rgba(249, 226, 175, 0.40); }
+.event-badge.is-mentioned        { color: var(--evt-mentioned);        background: rgba(203, 166, 247, 0.14); border-color: rgba(203, 166, 247, 0.36); }
+
+/* ── Jira 이슈 상태 배지 ──────────────────────────────────── */
+.jira-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+.jira-status.is-todo     { color: var(--jira-status-todo-fg);     background: var(--jira-status-todo-bg); }
+.jira-status.is-progress { color: var(--jira-status-progress-fg); background: var(--jira-status-progress-bg); }
+.jira-status.is-done     { color: var(--jira-status-done-fg);     background: var(--jira-status-done-bg); }
+.jira-status.is-blocked  { color: var(--jira-status-blocked-fg);  background: var(--jira-status-blocked-bg); }
+.jira-status.is-review   { color: var(--jira-status-review-fg);   background: var(--jira-status-review-bg); }
+
+/* Jira 이슈 키 (PROJ-123) — 링크처럼 보이는 모노 텍스트 */
+.jira-key {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--jira-blue-hover);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* 우선순위 점 */
+.jira-priority {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.jira-priority.is-highest { background: #ff5630; }
+.jira-priority.is-high    { background: #ff7452; }
+.jira-priority.is-medium  { background: #ffab00; }
+.jira-priority.is-low     { background: #57d9a3; }
+.jira-priority.is-lowest  { background: #57d9a3; opacity: 0.55; }
+
+/* ── Jira 섹션 (list 윈도우) ──────────────────────────────── */
+.jira-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+.jira-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-1);
+}
+.jira-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.jira-section-title .accent {
+  width: 3px; height: 14px;
+  border-radius: 2px;
+  background: var(--jira-blue);
+  display: inline-block;
+}
+.jira-section-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+/* Jira 이슈 아이템 (list 안의 li) */
+.jira-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.jira-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+.jira-item:hover {
+  border-color: var(--jira-blue-border);
+  background: var(--bg-elevated);
+}
+.jira-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.jira-item-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.jira-item-title {
+  font-size: var(--fs-md);
+  color: var(--text-primary);
+  font-weight: 500;
+  min-width: 0;
+}
+.jira-item-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.jira-item-meta .dot-sep {
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--text-disabled);
+  display: inline-block;
+}
+.jira-item-actions {
+  display: inline-flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  opacity: 0.72;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.jira-item:hover .jira-item-actions { opacity: 1; }
+
+.jira-empty {
+  padding: var(--space-5) var(--space-4);
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+}

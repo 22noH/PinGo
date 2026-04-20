@@ -7,6 +7,9 @@
   <title>Pingo — 리뷰 목록</title>
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
+  <link rel="stylesheet" href="../shared/components-v2.css">
+  <link rel="stylesheet" href="../shared/components-v3.css">
+  <link rel="stylesheet" href="../shared/components-v3-branch.css">
   <link rel="stylesheet" href="./list.css">
 </head>
 <body>
@@ -14,28 +17,52 @@
     <span class="list-titlebar-text">Pingo — 리뷰 목록</span>
   </div>
   <main class="list-root">
-    <header class="list-header">
-      <div class="list-filters">
-        <button id="filter-all" class="filter-btn is-active" type="button">전체 (<span id="count-all">0</span>)</button>
-        <button id="filter-mine" class="filter-btn" type="button">내가 리뷰어 (<span id="count-mine">0</span>)</button>
-        <button id="filter-unseen" class="filter-btn" type="button">안 본 것 (<span id="count-unseen">0</span>)</button>
-      </div>
-      <div class="list-header-right">
-        <button id="btn-refresh" class="refresh-btn" type="button" title="즉시 새로고침">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/>
-            <polyline points="1 20 1 14 7 14"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-          새로고침
-        </button>
-        <div class="list-status" id="list-status">로딩 중…</div>
-      </div>
-    </header>
-    <section class="list-body">
-      <ul class="mr-list" id="mr-list"></ul>
-      <div class="list-empty" id="list-empty" hidden>
-        <p>표시할 MR/PR이 없습니다.</p>
+    <nav class="tab-bar" role="tablist" aria-label="목록 섹션" style="margin-bottom: var(--space-4);">
+      <button id="tab-mr" type="button" role="tab" aria-controls="panel-mr" aria-selected="true" class="tab-item is-active">
+        MR / PR (<span id="tab-mr-count">0</span>)
+      </button>
+      <button id="tab-jira" type="button" role="tab" aria-controls="panel-jira" aria-selected="false" class="tab-item">
+        Jira (<span id="tab-jira-count">0</span>)
+      </button>
+      <span class="sep"></span>
+      <button id="btn-refresh" class="refresh-btn" type="button" title="즉시 새로고침" style="margin-right: var(--space-2);">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        새로고침
+      </button>
+      <div class="list-status" id="list-status">로딩 중…</div>
+    </nav>
+
+    <!-- [MR/PR 패널] -->
+    <section id="panel-mr" role="tabpanel" aria-labelledby="tab-mr" class="tab-panel is-active">
+      <header class="list-header">
+        <div class="list-filters">
+          <button id="filter-all" class="filter-btn is-active" type="button">전체 (<span id="count-all">0</span>)</button>
+          <button id="filter-mine" class="filter-btn" type="button">내가 리뷰어 (<span id="count-mine">0</span>)</button>
+          <button id="filter-unseen" class="filter-btn" type="button">안 본 것 (<span id="count-unseen">0</span>)</button>
+        </div>
+      </header>
+      <section class="list-body">
+        <ul class="mr-list" id="mr-list"></ul>
+        <div class="list-empty" id="list-empty" hidden>
+          <p>표시할 MR/PR이 없습니다.</p>
+        </div>
+      </section>
+    </section>
+
+    <!-- [Jira 패널] -->
+    <section id="panel-jira" role="tabpanel" aria-labelledby="tab-jira" class="tab-panel" hidden>
+      <div class="jira-section" style="margin-top:0; padding-top:0; border-top:none;">
+        <header class="jira-section-header">
+          <span class="jira-section-title"><span class="accent"></span>Jira 이슈 (최근 <span id="jira-count">0</span>)</span>
+        </header>
+        <ul id="jira-list" class="jira-list"></ul>
+        <div id="jira-empty" class="jira-empty" hidden>
+          <p>표시할 Jira 이슈가 없습니다.</p>
+        </div>
       </div>
     </section>
   </main>

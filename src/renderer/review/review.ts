@@ -8,14 +8,16 @@ import type {
   ReviewState,
   ReviewChunkPayload,
   ReviewErrorPayload,
-  CommentPostResult,
 } from '../../shared/types';
-import { PROVIDER_SHORT_LABEL, PROVIDER_DISPLAY_NAME } from '../../shared/constants';
 import { initMarked } from './review-markdown';
 import { StreamController, type StreamView } from './review-stream';
 import { openDiffModal } from './review-diff-modal';
 import { initTabs, addOrActivate, getActive, updateActive, closeById, getTabCount } from './review-tabs';
 import type { ReviewTab } from './review-tabs';
+import { renderDiscussions } from './review-discussions';
+import { postCommentAction } from './review-comment';
+import { renderHeader, type HeaderRefs } from './review-header';
+import { applyReviewState, type StateRefs } from './review-state';
 type AnyItem = ReviewItemSummary | ReviewItemWithChanges;
 
 const hasChanges = (it: AnyItem): it is ReviewItemWithChanges =>
@@ -45,6 +47,9 @@ const scrollBtn   = $<HTMLButtonElement>('btn-scroll-bottom');
 
 const fileList    = $<HTMLUListElement>('file-list');
 const fileCount   = $<HTMLElement>('file-count');
+const discussionsSection = $<HTMLElement>('review-discussions');
+const discussionsList    = $<HTMLUListElement>('thread-list');
+const discussionsCount   = $<HTMLElement>('discussions-count');
 
 const btnReview   = $<HTMLButtonElement>('btn-review');
 const btnAbort    = $<HTMLButtonElement>('btn-abort');
@@ -70,7 +75,7 @@ const stream = new StreamController(streamView, (change: ItemChange) => openDiff
 initTabs(
   tabBar,
   (tab) => {
-    if (!tab.id) { renderHeader(null); setReviewState('idle'); return; }
+    if (!tab.id) { applyHeader(null); setReviewState('idle'); return; }
     restoreTab(tab);
   },
 );
@@ -86,7 +91,7 @@ function saveCurrentTab(): void {
 }
 
 function restoreTab(tab: ReviewTab): void {
-  renderHeader(tab.item);
+  applyHeader(tab.item);
   setReviewState(tab.state);
   markdownEl.innerHTML = tab.savedHtml;
   // innerHTML 복원은 click 핸들러가 날아가므로 ItemChange[]가 있으면 재렌더
@@ -104,34 +109,8 @@ function restoreTab(tab: ReviewTab): void {
 }
 
 // ── 헤더 렌더링 ─────────────────────────────────────────────
-function renderHeader(item: AnyItem | null): void {
-  if (!item) {
-    mrIid.textContent = 'MR #—';
-    mrTitle.textContent = '로딩 중…';
-    mrBranch.textContent = '— → —';
-    mrAuthor.textContent = '—';
-    mrLink.href = '#';
-    mrLink.textContent = 'GitLab에서 열기';
-    document.title = 'Pingo — AI Review';
-    return;
-  }
-  mrIid.innerHTML = '';
-  const badge = document.createElement('span');
-  badge.className = `provider-badge is-${item.providerType}`;
-  badge.textContent = PROVIDER_SHORT_LABEL[item.providerType] || item.providerLabel || '';
-  badge.style.marginRight = '6px';
-  mrIid.appendChild(badge);
-  const label = document.createElement('span');
-  label.textContent = `${item.providerType === 'github' ? 'PR' : 'MR'} #${item.itemId}`;
-  mrIid.appendChild(label);
-
-  mrTitle.textContent  = item.title;
-  mrBranch.textContent = `${item.sourceBranch} → ${item.targetBranch}`;
-  mrAuthor.textContent = `@${item.author.username}`;
-  mrLink.href          = item.webUrl;
-  mrLink.textContent   = `${PROVIDER_DISPLAY_NAME[item.providerType]}에서 열기`;
-  document.title = `${item.providerType === 'github' ? 'PR' : 'MR'} #${item.itemId} — ${item.title}`;
-}
+const headerRefs: HeaderRefs = { mrIid, mrTitle, mrBranch, mrAuthor, mrLink };
+const applyHeader = (item: AnyItem | null): void => renderHeader(headerRefs, item);
 
 mrLink.addEventListener('click', (e) => {
   e.preventDefault();
@@ -140,54 +119,13 @@ mrLink.addEventListener('click', (e) => {
 });
 
 // ── 상태 머신 ───────────────────────────────────────────────
+const stateRefs: StateRefs = {
+  stateBadge, idleBox, markdownEl, errorBox,
+  btnReview, btnAbort, btnRetry, btnEdit, btnSaveEdit, btnCancelEdit, btnComment, editArea,
+};
 function setReviewState(next: ReviewState): void {
   reviewState = next;
-  stateBadge.className = 'badge ' + stateClass(next);
-  stateBadge.textContent = stateLabel(next);
-
-  const streaming = next === 'loading' || next === 'streaming';
-  btnReview.hidden = streaming;
-  btnAbort.hidden  = !streaming;
-  btnRetry.hidden  = !(next === 'error' || next === 'done');
-  btnEdit.hidden   = next !== 'done';
-  btnComment.disabled = next !== 'done';
-  // 편집 모드 버튼들은 외부에서 명시적으로 토글
-  if (next !== 'done') {
-    btnSaveEdit.hidden = true;
-    btnCancelEdit.hidden = true;
-    editArea.hidden = true;
-  }
-
-  if (next === 'idle') {
-    idleBox.hidden = false;
-    markdownEl.hidden = true;
-    errorBox.hidden = true;
-  } else if (next === 'loading') {
-    idleBox.hidden = true;
-    errorBox.hidden = true;
-    markdownEl.hidden = false;
-    markdownEl.innerHTML =
-      '<div class="row text-secondary"><span class="spinner"></span><span>변경 파일을 불러오는 중…</span></div>';
-  } else if (next === 'streaming') {
-    errorBox.hidden = true;
-    idleBox.hidden = true;
-  } else if (next === 'done') {
-    idleBox.hidden = true;
-    errorBox.hidden = true;
-    btnRetry.textContent = '다시 리뷰';
-  } else if (next === 'error') {
-    btnRetry.textContent = '다시 시도';
-  }
-}
-
-function stateLabel(s: ReviewState): string {
-  return { idle: '대기', loading: '준비', streaming: '진행 중', done: '완료', error: '오류' }[s];
-}
-function stateClass(s: ReviewState): string {
-  return {
-    idle: 'badge-muted', loading: 'badge-info', streaming: 'badge-info',
-    done: 'badge-add', error: 'badge-del',
-  }[s];
+  applyReviewState(stateRefs, next);
 }
 
 // ── IPC 구독 ─────────────────────────────────────────────────
@@ -198,6 +136,14 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
     tabChanges.set(tab.id, it.changes);
     stream.setFileList(it.changes);
     updateActive({ fileHtml: fileList.innerHTML, fileCount: fileCount.textContent ?? '0' });
+    // discussions 가 있으면 답글 UI 렌더 (없으면 섹션 숨김)
+    renderDiscussions(
+      discussionsList,
+      discussionsCount,
+      discussionsSection,
+      it.discussions ?? [],
+      { item: it },
+    );
     // 파일 목록 도착 완료 → AI 응답 대기 구간 안내 (첫 chunk까지 공백 방지)
     if (reviewState === 'loading') {
       markdownEl.innerHTML =
@@ -216,6 +162,8 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
     if (tab.state === 'idle') {
       btnReview.disabled = false;
     }
+    // summary 단계에서는 discussions 섹션 숨김 (다음 WithChanges 가 올 때 렌더)
+    discussionsSection.hidden = true;
   }
 });
 
@@ -307,38 +255,14 @@ btnSaveEdit.addEventListener('click', () => {
 async function postComment(): Promise<void> {
   const tab = getActive();
   if (!tab?.item) return;
-  const body = stream.getFullText().trim();
-  if (!body) return;
-  const original = btnComment.innerHTML;
-  btnComment.disabled = true;
-  btnComment.innerHTML = '<span class="spinner"></span><span>등록 중…</span>';
-  try {
-    const result: CommentPostResult = await window.electronAPI.postComment({
-      gitConfigId: tab.item.gitConfigId,
-      projectId: tab.item.projectId,
-      repoFullName: tab.item.repoFullName,
-      itemId: tab.item.itemId,
-      body,
-    });
-    if (result.success) {
-      btnComment.innerHTML = '<span>등록 완료</span>';
-      setTimeout(() => {
-        btnComment.innerHTML = original;
-        btnComment.disabled = reviewState !== 'done';
-      }, 1600);
-    } else {
-      errorMsg.textContent = `댓글 등록 실패: ${result.error ?? '알 수 없는 오류'}`;
-      errorBox.hidden = false;
-      btnComment.innerHTML = original;
-      btnComment.disabled = false;
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    errorMsg.textContent = `IPC 오류: ${msg}`;
-    errorBox.hidden = false;
-    btnComment.innerHTML = original;
-    btnComment.disabled = false;
-  }
+  await postCommentAction({
+    item: tab.item,
+    body: stream.getFullText().trim(),
+    btn: btnComment,
+    errorBox,
+    errorMsg,
+    getReviewState: () => reviewState,
+  });
 }
 
 // ── 키보드 단축키 ───────────────────────────────────────────

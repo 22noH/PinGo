@@ -49,6 +49,30 @@ export const TAB_DRAG_DETACH = 'review:tab-drag-detach' as const;
 
 export const OLLAMA_MODELS_FETCH = 'ollama:models:fetch' as const;
 
+// ── v3 신규 IPC — Jira ─────────────────────────────────────
+export const JIRA_CONNECTIONS_LOAD = 'jira:connections:load' as const;
+export const JIRA_CONNECTIONS_SAVE = 'jira:connections:save' as const;
+export const JIRA_CONNECTION_TEST = 'jira:connection:test' as const;
+/** Renderer → Main: 현재 Jira webhook secret 조회 (없으면 생성 후 반환) */
+export const JIRA_WEBHOOK_SECRET_GET = 'jira:webhook:secret:get' as const;
+/** Renderer → Main: Jira webhook secret 재생성 (webhook 서버 재시작 포함) */
+export const JIRA_WEBHOOK_SECRET_REGENERATE = 'jira:webhook:secret:regenerate' as const;
+/** Main → Renderer: 새 Jira 이슈 발생 (리스트/트레이 알림용) */
+export const JIRA_ISSUE_NEW = 'jira:issue:new' as const;
+/** Main → Renderer: 리스트 윈도우 Jira 섹션 업데이트 브로드캐스트 */
+export const LIST_JIRA_UPDATED = 'list:jira:updated' as const;
+
+// ── v3 신규 IPC — 브랜치 ───────────────────────────────────
+export const BRANCH_CREATE = 'branch:create' as const;
+export const BRANCH_LIST   = 'branch:list'   as const;
+
+// ── v3 신규 IPC — 댓글 답글 ────────────────────────────────
+export const COMMENT_REPLY = 'comment:reply' as const;
+
+// ── v3 신규 IPC — 프로젝트 필터 ────────────────────────────
+export const PROJECT_FILTERS_LOAD = 'project-filters:load' as const;
+export const PROJECT_FILTERS_SAVE = 'project-filters:save' as const;
+
 /** 목록 윈도우 — 현재 open MR + interaction 조회 */
 export const LIST_LOAD = 'list:load' as const;
 /** 목록 윈도우 → main: 특정 아이템에 대한 AI 리뷰 시작 요청 */
@@ -64,12 +88,15 @@ export type MainToRendererChannel =
   | typeof REVIEW_DONE
   | typeof REVIEW_ERROR
   | typeof ITEM_NEW
-  | typeof TRAY_STATE_CHANGED;
+  | typeof TRAY_STATE_CHANGED
+  | typeof JIRA_ISSUE_NEW
+  | typeof LIST_JIRA_UPDATED;
 
 export type RendererToMainChannel =
   | typeof REVIEW_START
   | typeof REVIEW_ABORT
   | typeof COMMENT_POST
+  | typeof COMMENT_REPLY
   | typeof SETTINGS_SAVE
   | typeof SETTINGS_LOAD
   | typeof WINDOW_OPEN_MR
@@ -80,7 +107,16 @@ export type RendererToMainChannel =
   | typeof AI_CONFIG_LOAD
   | typeof AI_CONFIG_SAVE
   | typeof AI_AVAILABILITY_TEST
-  | typeof OLLAMA_MODELS_FETCH;
+  | typeof OLLAMA_MODELS_FETCH
+  | typeof JIRA_CONNECTIONS_LOAD
+  | typeof JIRA_CONNECTIONS_SAVE
+  | typeof JIRA_CONNECTION_TEST
+  | typeof JIRA_WEBHOOK_SECRET_GET
+  | typeof JIRA_WEBHOOK_SECRET_REGENERATE
+  | typeof BRANCH_CREATE
+  | typeof BRANCH_LIST
+  | typeof PROJECT_FILTERS_LOAD
+  | typeof PROJECT_FILTERS_SAVE;
 
 // ── 기본값 / 제한 상수 ──────────────────────────────────────
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
@@ -90,6 +126,31 @@ export const MAX_RECENT_ITEMS = 20;
 export const MAX_CHANGES_IN_REVIEW = 10;
 export const MAX_DIFF_CHARS = 4000;
 export const NEW_MR_BLINK_INTERVAL_MS = 800;
+
+// ── v3 Jira 상수 ────────────────────────────────────────────
+export const DEFAULT_JIRA_WEBHOOK_PORT = 9876;
+/** @deprecated — path 기반으로 변경. JIRA_WEBHOOK_PATH_PREFIX + token 사용. */
+export const JIRA_WEBHOOK_PATH = '/jira-webhook' as const;
+/** v3 webhook URL 은 path 방식: `${JIRA_WEBHOOK_PATH_PREFIX}${token}` (§20.12.A / §20.13.C1) */
+export const JIRA_WEBHOOK_PATH_PREFIX = '/jira-webhook/' as const;
+/** body 상한 1MB (§20.13.C2) */
+export const JIRA_WEBHOOK_BODY_LIMIT_BYTES = 1_048_576;
+/** 소켓 타임아웃 5초 (§20.12.A) */
+export const JIRA_WEBHOOK_REQUEST_TIMEOUT_MS = 5_000;
+export const MAX_RECENT_JIRA_ISSUES = 20;
+export const MAX_SEEN_JIRA_ISSUE_IDS = 200;
+export const MAX_SEEN_PIPELINE_IDS = 200;
+export const MAX_SEEN_APPROVAL_ITEM_IDS = 200;
+/** v3 브랜치 — slug 부분만의 한도 (전체 branchName 한도 아님, §20.13.I4) */
+export const BRANCH_NAME_MAX_SLUG_LEN = 40;
+/** v3 브랜치 — 전체 branchName 한도 (Git 기본 255자, §20.13.I4) */
+export const BRANCH_NAME_MAX_TOTAL_LEN = 255;
+/** @deprecated — BRANCH_NAME_MAX_SLUG_LEN 로 rename. alias 만 유지. */
+export const BRANCH_NAME_MAX_LEN = BRANCH_NAME_MAX_SLUG_LEN;
+export const BRANCH_NAME_PREFIX = 'feature' as const;
+/** Jira REST API path (v3 우선, v2 fallback) */
+export const JIRA_API_PATH = '/rest/api/3' as const;
+export const JIRA_API_PATH_SERVER_FALLBACK = '/rest/api/2' as const;
 
 // ── 외부 리소스 URL ─────────────────────────────────────────
 export const CLAUDE_INSTALL_URL = 'https://claude.ai/code' as const;

@@ -1,57 +1,45 @@
-// main/ipc.ts — IPC 핸들러 등록 (v2)
+// main/ipc.ts — IPC 핸들러 등록 (v2 + v3 루트) — settings/AI/Git 은 ipc-settings 로 분리.
 import { BrowserWindow, ipcMain, screen, shell } from 'electron';
 import log from 'electron-log';
 import type Store from 'electron-store';
 import type {
-  AIAvailabilityTestPayload,
-  AIAvailabilityTestResult,
   AIConfig,
-  AIConfigLoadResult,
-  AIConfigSavePayload,
   AppSettings,
   CommentPostPayload,
   CommentPostResult,
-  ConnectionTestResult,
+  CommentReplyPayload,
+  CommentReplyResult,
   GitConfig,
-  GitConnectionTestPayload,
-  GitConnectionsLoadResult,
-  GitConnectionsSavePayload,
+  JiraConfig,
   ListLoadResult,
-  OllamaModelsFetchPayload,
-  OllamaModelsFetchResult,
+  ProjectFiltersLoadResult,
+  ProjectFiltersSavePayload,
   ReviewItem,
   ReviewItemSummary,
   ReviewStartPayload,
-  SettingsLoadResult,
-  SettingsSavePayload,
   StoreSchema,
 } from '../shared/types';
 import {
-  AI_AVAILABILITY_TEST,
-  AI_CONFIG_LOAD,
-  AI_CONFIG_SAVE,
   COMMENT_POST,
-  GIT_CONNECTIONS_LOAD,
-  GIT_CONNECTIONS_SAVE,
-  GIT_CONNECTION_TEST,
+  COMMENT_REPLY,
   ITEM_NEW,
   LIST_LOAD,
   LIST_OPEN_REVIEW,
   LIST_REFRESH,
+  PROJECT_FILTERS_LOAD,
+  PROJECT_FILTERS_SAVE,
   TAB_DRAG_START,
   TAB_DRAG_END,
   TAB_DRAG_DROP,
   TAB_DRAG_DETACH,
   NOTIFICATION_TOGGLE,
-  OLLAMA_MODELS_FETCH,
   REVIEW_ABORT,
   REVIEW_START,
-  SETTINGS_LOAD,
-  SETTINGS_SAVE,
   WINDOW_OPEN_MR,
 } from '../shared/constants';
-import { createAIProvider } from './providers/ai/ai-provider';
-import { fetchOllamaModels } from './providers/ai/ollama';
+import { registerJiraHandlers, unregisterJiraHandlers } from './ipc-jira';
+import { registerBranchHandlers, unregisterBranchHandlers } from './ipc-branch';
+import { registerSettingsHandlers, unregisterSettingsHandlers } from './ipc-settings';
 import { createGitProvider } from './providers/git/git-provider';
 import { runReviewStart } from './ipc-review';
 import type { RunHandle } from './review-runner';
@@ -65,6 +53,8 @@ export interface IpcDeps {
   rebuildProviders: (configs: GitConfig[]) => void;
   /** AIConfig 변경 시 review-runner 재구성 트리거 */
   rebuildAIProvider: (config: AIConfig) => void;
+  /** JiraConfig[] 변경 시 Jira 폴링/웹훅 재구성 (v3) */
+  rebuildJira: (configs: JiraConfig[]) => void;
   /** 폴링 간격/알림 토글 등 기타 설정 적용 */
   onSettingsSaved: (settings: AppSettings) => void;
   onNotificationToggle: () => void;
@@ -118,32 +108,35 @@ async function handleCommentPost(
   return result;
 }
 
-async function handleGitConnectionTest(
-  payload: GitConnectionTestPayload,
-): Promise<ConnectionTestResult> {
-  try {
-    const provider = createGitProvider(payload.config);
-    return await provider.testConnection();
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+async function handleCommentReply(
+  deps: IpcDeps,
+  payload: CommentReplyPayload,
+): Promise<CommentReplyResult> {
+  const settings = deps.store.get('settings');
+  const cfg = settings.gitConnections.find((c) => c.id === payload.gitConfigId);
+  if (!cfg) return { success: false, error: '연결을 찾을 수 없습니다' };
+  const provider = createGitProvider(cfg);
+  if (!provider.postReply) {
+    return { success: false, error: '이 provider 는 답글을 지원하지 않습니다' };
   }
-}
-
-async function handleAIAvailabilityTest(
-  payload: AIAvailabilityTestPayload,
-): Promise<AIAvailabilityTestResult> {
-  try {
-    const provider = createAIProvider(payload.config);
-    return await provider.testAvailability();
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-function handleOllamaModelsFetch(
-  payload: OllamaModelsFetchPayload,
-): Promise<OllamaModelsFetchResult> {
-  return fetchOllamaModels(payload.baseUrl);
+  const compositeId = `${cfg.id}::${cfg.type}::${payload.projectId}::${payload.itemId}`;
+  const stub: ReviewItemSummary = {
+    id: compositeId,
+    gitConfigId: cfg.id,
+    providerType: cfg.type,
+    providerLabel: cfg.type === 'gitlab' ? 'GL' : 'GH',
+    itemId: payload.itemId,
+    title: '', description: '',
+    author: { id: 0, name: '', username: '', avatar_url: '' },
+    reviewers: [], viewerIsReviewer: false,
+    webUrl: '', sourceBranch: '', targetBranch: '',
+    projectId: payload.projectId,
+    repoFullName: payload.repoFullName,
+    createdAt: '', updatedAt: '',
+  };
+  const res = await provider.postReply(stub, payload);
+  if (res.success) deps.recordInteraction(compositeId, 'commented');
+  return res;
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
@@ -236,104 +229,44 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       handleCommentPost(deps, payload),
   );
 
-  // ── 전체 설정 저장/로드 ─────────────────────────────────
-  ipcMain.handle(SETTINGS_LOAD, (): SettingsLoadResult => {
-    return { settings: deps.store.get('settings') };
-  });
-
-  ipcMain.handle(SETTINGS_SAVE, (_e, payload: SettingsSavePayload): void => {
-    deps.store.set('settings', payload.settings);
-    log.info('ipc: settings saved (full)');
-    deps.rebuildProviders(payload.settings.gitConnections);
-    deps.rebuildAIProvider(payload.settings.ai);
-    deps.applyStartup(payload.settings.launchOnStartup ?? false);
-    deps.onSettingsSaved(payload.settings);
-  });
-
-  // ── Git 연결 전용 IPC ───────────────────────────────────
-  ipcMain.handle(GIT_CONNECTIONS_LOAD, (): GitConnectionsLoadResult => {
-    return { gitConnections: deps.store.get('settings').gitConnections };
-  });
-
+  // ── v3: COMMENT_REPLY ─────────────────────────────────
   ipcMain.handle(
-    GIT_CONNECTIONS_SAVE,
-    (_e, payload: GitConnectionsSavePayload): void => {
-      const current = deps.store.get('settings');
-      const next: AppSettings = {
-        ...current,
-        gitConnections: payload.gitConnections,
-      };
+    COMMENT_REPLY,
+    (_e, payload: CommentReplyPayload): Promise<CommentReplyResult> =>
+      handleCommentReply(deps, payload),
+  );
+
+  // ── v3: PROJECT_FILTERS ───────────────────────────────
+  ipcMain.handle(PROJECT_FILTERS_LOAD, (): ProjectFiltersLoadResult => {
+    return { projectFilters: deps.store.get('settings').projectFilters ?? [] };
+  });
+  ipcMain.handle(
+    PROJECT_FILTERS_SAVE,
+    (_e, payload: ProjectFiltersSavePayload): void => {
+      const cur = deps.store.get('settings');
+      const next: AppSettings = { ...cur, projectFilters: payload.projectFilters };
       deps.store.set('settings', next);
-
-      // ── orphan pruning: 삭제된 gitConfigId 에 연결된 recentItems/seenItemIds 제거
-      const validIds = new Set(payload.gitConnections.map((c) => c.id));
-      const prunedRecent = deps.store
-        .get('recentItems')
-        .filter((it) => validIds.has(it.gitConfigId));
-      deps.store.set('recentItems', prunedRecent);
-
-      const prunedSeen = deps.store
-        .get('seenItemIds')
-        .filter((id) => {
-          const [gitConfigId] = id.split('::');
-          return validIds.has(gitConfigId);
-        });
-      deps.store.set('seenItemIds', prunedSeen);
-
-      log.info(
-        `ipc: gitConnections saved (count=${payload.gitConnections.length}, recent=${prunedRecent.length}, seen=${prunedSeen.length})`,
-      );
-      deps.rebuildProviders(payload.gitConnections);
+      log.info(`ipc: projectFilters saved (count=${payload.projectFilters.length})`);
       deps.onSettingsSaved(next);
     },
   );
 
-  ipcMain.handle(
-    GIT_CONNECTION_TEST,
-    (_e, payload: GitConnectionTestPayload): Promise<ConnectionTestResult> =>
-      handleGitConnectionTest(payload),
-  );
-
-  // ── AI 설정 전용 IPC ────────────────────────────────────
-  ipcMain.handle(AI_CONFIG_LOAD, (): AIConfigLoadResult => {
-    return { ai: deps.store.get('settings').ai };
+  // ── v3: Jira / Branch / Settings sub-handlers ─────────
+  registerJiraHandlers({ store: deps.store, rebuildJira: deps.rebuildJira });
+  registerBranchHandlers({ store: deps.store });
+  registerSettingsHandlers({
+    store: deps.store,
+    rebuildProviders: deps.rebuildProviders,
+    rebuildAIProvider: deps.rebuildAIProvider,
+    onSettingsSaved: deps.onSettingsSaved,
+    applyStartup: deps.applyStartup,
   });
 
-  ipcMain.handle(AI_CONFIG_SAVE, (_e, payload: AIConfigSavePayload): void => {
-    const current = deps.store.get('settings');
-    const next: AppSettings = { ...current, ai: payload.ai };
-    deps.store.set('settings', next);
-    log.info(`ipc: AI config saved (type=${payload.ai.type})`);
-    deps.rebuildAIProvider(payload.ai);
-    deps.onSettingsSaved(next);
-  });
-
-  ipcMain.handle(
-    AI_AVAILABILITY_TEST,
-    (_e, payload: AIAvailabilityTestPayload): Promise<AIAvailabilityTestResult> =>
-      handleAIAvailabilityTest(payload),
-  );
-
-  ipcMain.handle(
-    OLLAMA_MODELS_FETCH,
-    (_e, payload: OllamaModelsFetchPayload): Promise<OllamaModelsFetchResult> =>
-      handleOllamaModelsFetch(payload),
-  );
-
-  log.info('ipc: handlers registered (v2)');
+  log.info('ipc: handlers registered (v2 + v3)');
 }
 
 export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler(COMMENT_POST);
-  ipcMain.removeHandler(SETTINGS_LOAD);
-  ipcMain.removeHandler(SETTINGS_SAVE);
-  ipcMain.removeHandler(GIT_CONNECTIONS_LOAD);
-  ipcMain.removeHandler(GIT_CONNECTIONS_SAVE);
-  ipcMain.removeHandler(GIT_CONNECTION_TEST);
-  ipcMain.removeHandler(AI_CONFIG_LOAD);
-  ipcMain.removeHandler(AI_CONFIG_SAVE);
-  ipcMain.removeHandler(AI_AVAILABILITY_TEST);
-  ipcMain.removeHandler(OLLAMA_MODELS_FETCH);
   ipcMain.removeAllListeners(REVIEW_START);
   ipcMain.removeAllListeners(REVIEW_ABORT);
   ipcMain.removeAllListeners(WINDOW_OPEN_MR);
@@ -344,6 +277,12 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners(LIST_OPEN_REVIEW);
   ipcMain.removeAllListeners(LIST_REFRESH);
   ipcMain.removeHandler(LIST_LOAD);
+  ipcMain.removeHandler(COMMENT_REPLY);
+  ipcMain.removeHandler(PROJECT_FILTERS_LOAD);
+  ipcMain.removeHandler(PROJECT_FILTERS_SAVE);
+  unregisterJiraHandlers();
+  unregisterBranchHandlers();
+  unregisterSettingsHandlers();
   if (currentRun) {
     currentRun.abort();
     currentRun = null;
