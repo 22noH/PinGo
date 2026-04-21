@@ -397,6 +397,9 @@ function bootstrap(): void {
     refreshPoller: (): void => {
       poller?.refresh();
     },
+    refreshJiraBridge: (): void => {
+      jiraBridge?.refresh();
+    },
   });
 
   // seenItemIds 가 [] 이면 silent pre-seed 후 poller 시작

@@ -67,6 +67,8 @@ export interface IpcDeps {
   openReviewById: (itemId: string) => void;
   /** 즉시 폴링 요청 */
   refreshPoller: () => void;
+  /** 즉시 Jira 폴링 요청 */
+  refreshJiraBridge: () => void;
 }
 
 let currentRun: RunHandle | null = null;
@@ -185,6 +187,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 
   ipcMain.on(LIST_REFRESH, () => {
     deps.refreshPoller();
+    deps.refreshJiraBridge();
   });
 
   // ── 탭 드래그: 릴리즈 시점에 드롭 위치 판단 ─────────────────

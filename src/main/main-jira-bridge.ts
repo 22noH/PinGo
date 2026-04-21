@@ -29,6 +29,8 @@ export interface JiraBridgeController {
   stop(): Promise<void>;
   /** AppSettings 변경 시 전체 재구성 (poller + webhook 서버 on/off) */
   reconfigure(settings: AppSettings): Promise<void>;
+  /** 즉시 Jira 폴링 tick 1회 실행 */
+  refresh(): void;
 }
 
 function pickPrimaryConfig(configs: JiraConfig[]): JiraConfig | null {
@@ -111,6 +113,9 @@ export function createJiraBridge(
     reconfigure: async (settings: AppSettings): Promise<void> => {
       setupPoller(settings);
       await setupWebhook(settings);
+    },
+    refresh: (): void => {
+      poller?.refresh();
     },
   };
 }

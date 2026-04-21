@@ -238,11 +238,13 @@ function renderJiraItem(issue: JiraIssueSummary): HTMLLIElement {
 }
 
 async function bootstrap(): Promise<void> {
+  let loadedOk = false;
   try {
     const { items, interactions } = await window.electronAPI.loadList();
     currentItems = items;
     currentInteractions = interactions;
     renderMrList();
+    loadedOk = true;
   } catch (err) {
     listStatus.textContent = `로드 실패: ${err instanceof Error ? err.message : String(err)}`;
   }
@@ -251,6 +253,19 @@ async function bootstrap(): Promise<void> {
     gitConnections = gits;
   } catch { /* noop */ }
   renderJiraList();
+  if (loadedOk) listStatus.textContent = '';
+}
+
+function formatNowTime(): string {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
+function updateStatusToLastSynced(): void {
+  listStatus.textContent = `마지막 확인: ${formatNowTime()}`;
 }
 
 window.electronAPI.onListUpdated((payload: ListLoadResult): void => {
@@ -259,11 +274,13 @@ window.electronAPI.onListUpdated((payload: ListLoadResult): void => {
   btnRefresh.classList.remove('is-spinning');
   btnRefresh.disabled = false;
   renderMrList();
+  updateStatusToLastSynced();
 });
 
 window.electronAPI.onListJiraUpdated((payload): void => {
   currentJira = Array.isArray(payload.issues) ? payload.issues : [];
   renderJiraList();
+  updateStatusToLastSynced();
 });
 
 window.electronAPI.onJiraIssueNew((issue: JiraIssueSummary): void => {
@@ -282,6 +299,9 @@ btnRefresh.addEventListener('click', () => {
   setTimeout(() => {
     btnRefresh.classList.remove('is-spinning');
     btnRefresh.disabled = false;
+    if (listStatus.textContent === '새로고침 중…') {
+      updateStatusToLastSynced();
+    }
   }, 5000);
 });
 

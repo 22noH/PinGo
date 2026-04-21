@@ -119,12 +119,13 @@ body {
 
 .review-root {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr auto auto;
   height: 100vh;
   width: 100%;
   padding: var(--space-4) var(--space-5);
   gap: var(--space-4);
   min-height: 0;
+  overflow-y: auto;
 }
 
 /* ── 헤더 ───────────────────────────────────────────── */
@@ -146,8 +147,22 @@ body {
   display: grid;
   grid-template-columns: minmax(220px, 280px) 1fr;
   gap: var(--space-4);
+  min-height: 240px;
+  overflow: hidden;
+}
+
+/* ── 토론 영역 — 본문(.review-split) 을 밀어내지 않도록 자체 스크롤 ── */
+#review-discussions {
+  display: flex;
+  flex-direction: column;
+  max-height: 40vh;
   min-height: 0;
   overflow: hidden;
+}
+#review-discussions .card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* 좌: 파일 목록 */
