@@ -41,11 +41,20 @@ export class ClaudeCLIProvider implements AIProvider {
   ): AIStreamHandle {
     const execPath = resolveCliExecPath('claude', this.config.execPath);
     const useShell = needsShell(execPath);
-    log.info(`claude-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''}`);
+
+    const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose'];
+    const model = (this.config.model ?? '').trim();
+    if (model) args.push('--model', model);
+    const effort = (this.config.effort ?? '').trim();
+    if (effort) args.push('--effort', effort);
+    log.info(
+      `claude-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''} ` +
+      `model=${model || '(default)'} effort=${effort || '(default)'}`,
+    );
 
     const proc = spawn(
       execPath,
-      ['-p', '--output-format', 'stream-json', '--verbose'],
+      args,
       { stdio: ['pipe', 'pipe', 'pipe'], shell: useShell },
     );
 

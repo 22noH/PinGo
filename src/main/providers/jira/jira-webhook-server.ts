@@ -23,6 +23,7 @@ interface JiraWebhookRawPayload {
       summary?: string;
       status?: { name?: string };
       priority?: { name?: string };
+      issuetype?: { name?: string; iconUrl?: string };
       assignee?: { accountId?: string; key?: string; name?: string; displayName?: string; emailAddress?: string; avatarUrls?: Record<string, string> } | null;
       reporter?: { accountId?: string; key?: string; name?: string; displayName?: string; emailAddress?: string; avatarUrls?: Record<string, string> } | null;
       project?: { key?: string };
@@ -88,6 +89,8 @@ function toIssueSummary(
     summary: fields.summary ?? '',
     status: fields.status?.name ?? '',
     priority: fields.priority?.name ?? '',
+    issueType: fields.issuetype?.name ?? '',
+    issueTypeIconUrl: fields.issuetype?.iconUrl,
     assignee: assignee
       ? {
           accountId: assignee.accountId ?? assignee.key ?? assignee.name ?? '',

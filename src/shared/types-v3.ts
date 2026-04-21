@@ -97,8 +97,11 @@ export interface BranchCreatePayload {
   jiraIssueKey: string;
   branchName: string;
   baseBranch: string;
-  /** GitLab projectId / GitHub repo id */
-  projectId: number;
+  /**
+   * GitLab projectId(number) 또는 namespace path("group/sub/proj"). 문자열이면 URL-encode 해서 사용.
+   * GitHub은 repoFullName 을 사용하므로 이 필드는 0(또는 임의) 으로 둬도 됨.
+   */
+  projectId: number | string;
   /** GitHub 전용 — "owner/repo" */
   repoFullName?: string;
 }
@@ -114,8 +117,35 @@ export interface BranchCreateResult {
 
 export interface BranchListPayload {
   gitConfigId: string;
-  projectId: number;
+  /** GitLab: number | "group/proj" path(string). GitHub: 무시, repoFullName 사용. */
+  projectId: number | string;
   repoFullName?: string;
+}
+
+// ── 프로젝트/저장소 목록 (브랜치 모달에서 사용) ─────────────
+export interface GitProjectSummary {
+  /**
+   * API 호출에 그대로 쓰는 값.
+   * GitLab: namespace path ("group/proj") — projectId 숫자보다 사람이 읽기 좋음.
+   * GitHub: "owner/repo".
+   */
+  value: string;
+  /** UI 표시용 전체 이름 (보통 value 와 같음, 보조 정보 부연 가능) */
+  name: string;
+  /** 설명(optional) */
+  description?: string;
+  /** 기본 브랜치(있으면) — 로드 후 자동 선택용 */
+  defaultBranch?: string;
+}
+
+export interface ProjectListPayload {
+  gitConfigId: string;
+}
+
+export interface ProjectListResult {
+  success: boolean;
+  projects?: GitProjectSummary[];
+  error?: string;
 }
 
 export interface BranchListResult {

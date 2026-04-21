@@ -38,6 +38,10 @@ export interface JiraIssueSummary {
   status: string;
   /** 우선순위 이름 (예: 'High', 'Medium'). 이슈가 우선순위 미설정이면 빈 문자열 */
   priority: string;
+  /** 이슈 타입 이름 (예: 'Bug', 'Task', 'Story', 'Sub-task'). 미설정이면 빈 문자열 */
+  issueType: string;
+  /** 이슈 타입의 아이콘 URL (Jira가 제공). 없으면 undefined */
+  issueTypeIconUrl?: string;
   /** 담당자 — 미지정 시 undefined */
   assignee?: JiraUserBrief;
   /** 보고자 */

@@ -65,6 +65,8 @@ export const LIST_JIRA_UPDATED = 'list:jira:updated' as const;
 // ── v3 신규 IPC — 브랜치 ───────────────────────────────────
 export const BRANCH_CREATE = 'branch:create' as const;
 export const BRANCH_LIST   = 'branch:list'   as const;
+/** 사용자가 접근 가능한 프로젝트/저장소 목록 조회 */
+export const PROJECT_LIST  = 'project:list'  as const;
 
 // ── v3 신규 IPC — 댓글 답글 ────────────────────────────────
 export const COMMENT_REPLY = 'comment:reply' as const;
@@ -115,11 +117,15 @@ export type RendererToMainChannel =
   | typeof JIRA_WEBHOOK_SECRET_REGENERATE
   | typeof BRANCH_CREATE
   | typeof BRANCH_LIST
+  | typeof PROJECT_LIST
   | typeof PROJECT_FILTERS_LOAD
   | typeof PROJECT_FILTERS_SAVE;
 
 // ── 기본값 / 제한 상수 ──────────────────────────────────────
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
+
+/** 대시보드 창 여는 전역 단축키 기본값 */
+export const DEFAULT_DASHBOARD_HOTKEY = 'CommandOrControl+Shift+D';
 export const MIN_POLL_INTERVAL_MS = 10_000;
 export const MAX_SEEN_ITEM_IDS = 200;
 export const MAX_RECENT_ITEMS = 20;
@@ -164,6 +170,43 @@ export const ANTHROPIC_MODELS: readonly string[] = [
 ] as const;
 
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6' as const;
+
+// ── Claude CLI 모델 별칭 (설정 UI 드롭다운) ──────────────────
+// CLI는 별칭(sonnet/opus/haiku) 또는 전체 model id 허용. 빈 값이면 CLI 기본 사용.
+export const CLAUDE_CLI_MODELS: readonly string[] = [
+  '',        // 기본(미지정)
+  'haiku',   // 가장 저렴 — 토큰 절약
+  'sonnet',  // 균형
+  'opus',    // 고성능(고비용)
+] as const;
+
+// ── Codex CLI (OpenAI) 모델/reasoning effort ────────────────
+// Codex는 -m <model> + -c model_reasoning_effort=<level> 사용
+export const CODEX_CLI_MODELS: readonly string[] = [
+  '',          // 기본(config.toml)
+  'gpt-5-codex',
+  'o3',
+  'o4-mini',
+] as const;
+
+export const CODEX_CLI_EFFORTS: readonly string[] = [
+  '',          // 기본
+  'minimal',
+  'low',
+  'medium',
+  'high',
+] as const;
+
+// ── Claude CLI --effort 레벨 (토큰 예산 제어) ────────────────
+// 빈 값 → CLI 기본(high) 사용. 낮출수록 토큰/비용 절감.
+export const CLAUDE_CLI_EFFORTS: readonly string[] = [
+  '',        // 기본(high)
+  'low',     // 1 — 가장 절약
+  'medium',  // 2
+  'high',    // 3 — API 기본
+  'xhigh',   // 4 — Opus 4.7 전용 권장
+  'max',     // 5 — 무제한
+] as const;
 
 // ── OpenAI 모델 기본 목록 (힌트, 사용자 자유 입력 가능) ──────
 export const OPENAI_MODELS: readonly string[] = [

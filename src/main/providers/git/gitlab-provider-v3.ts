@@ -11,6 +11,7 @@ import type {
   CommentReplyPayload,
   GitIssue,
   GitLabConfig,
+  GitProjectSummary,
   PipelineInfo,
   ReviewItemAuthor,
   ReviewItemSummary,
@@ -157,13 +158,25 @@ export async function fetchAssignedIssues(
   }));
 }
 
+/**
+ * GitLab `/projects/:id` 경로용 project ref 인코딩.
+ * - number    → toString (그대로)
+ * - string "group/proj" → encodeURIComponent (슬래시 포함 모든 예약 문자를 %-인코딩)
+ *   axios는 경로 문자열을 추가로 인코딩하지 않으므로 여기서 1회만 인코딩하면 됨.
+ */
+function encodeProjectRef(ref: number | string): string {
+  if (typeof ref === 'number') return String(ref);
+  return encodeURIComponent(ref);
+}
+
 export async function createBranch(
   client: AxiosInstance,
   payload: BranchCreatePayload,
 ): Promise<BranchCreateResult> {
   try {
+    const pr = encodeProjectRef(payload.projectId);
     const res = await client.post<{ name: string; web_url: string }>(
-      `/projects/${payload.projectId}/repository/branches`,
+      `/projects/${pr}/repository/branches`,
       null,
       { params: { branch: payload.branchName, ref: payload.baseBranch } },
     );
@@ -184,8 +197,9 @@ export async function listBranches(
   payload: BranchListPayload,
 ): Promise<BranchListResult> {
   try {
+    const pr = encodeProjectRef(payload.projectId);
     const res = await client.get<GitLabBranch[]>(
-      `/projects/${payload.projectId}/repository/branches`,
+      `/projects/${pr}/repository/branches`,
       { params: { per_page: 100 } },
     );
     // default 를 앞으로
@@ -199,6 +213,46 @@ export async function listBranches(
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
   }
+}
+
+interface GitLabProjectRaw {
+  id: number;
+  path_with_namespace: string;
+  name_with_namespace?: string;
+  description?: string | null;
+  default_branch?: string | null;
+}
+
+/**
+ * 사용자가 멤버/관리자 권한을 가진 프로젝트 목록.
+ * 최대 200개까지 2페이지 수집 (100 × 2). membership=true 로 현재 사용자 가시 프로젝트만.
+ */
+export async function listProjects(
+  client: AxiosInstance,
+  signal?: AbortSignal,
+): Promise<GitProjectSummary[]> {
+  const out: GitLabProjectRaw[] = [];
+  for (let page = 1; page <= 2; page += 1) {
+    const res = await client.get<GitLabProjectRaw[]>('/projects', {
+      params: {
+        membership: true,
+        order_by: 'last_activity_at',
+        sort: 'desc',
+        per_page: 100,
+        page,
+        simple: true,
+      },
+      signal,
+    });
+    out.push(...res.data);
+    if (res.data.length < 100) break;
+  }
+  return out.map((p): GitProjectSummary => ({
+    value: p.path_with_namespace,
+    name: p.name_with_namespace ?? p.path_with_namespace,
+    description: p.description ?? undefined,
+    defaultBranch: p.default_branch ?? undefined,
+  }));
 }
 
 export async function postReply(

@@ -318,6 +318,9 @@ export class GitHubProvider implements GitProvider {
   listBranches(payload: import('../../../shared/types').BranchListPayload): Promise<import('../../../shared/types').BranchListResult> {
     return V3.listBranches(this.client, payload);
   }
+  listProjects(signal?: AbortSignal): Promise<import('../../../shared/types').GitProjectSummary[]> {
+    return V3.listProjects(this.client, signal);
+  }
   postReply(item: ReviewItemSummary, payload: import('../../../shared/types').CommentReplyPayload): Promise<CommentPostResult> {
     return V3.postReply(this.client, item, payload);
   }

@@ -6,6 +6,7 @@ import { PROVIDER_SHORT_LABEL } from '../../shared/constants';
 export interface BranchModalView {
   backdrop: HTMLDivElement;
   gitSelect: HTMLSelectElement;
+  projectSelect: HTMLSelectElement;
   baseSelect: HTMLSelectElement;
   nameInput: HTMLInputElement;
   nameError: HTMLSpanElement;
@@ -20,6 +21,7 @@ export interface BranchModalViewArgs {
   initialBranchName: string;
   initialGitId: string;
   onGitChange: (id: string) => void;
+  onProjectChange: (value: string) => void;
   onBaseChange: (name: string) => void;
   onNameInput: () => void;
   onCopy: () => void;
@@ -54,6 +56,18 @@ export function buildBranchModalView(a: BranchModalViewArgs): BranchModalView {
   const gitSelect = buildGitSelect(a.gitConnections, a.initialGitId);
   body.appendChild(fieldWrap('Git 연결', 'branch-git-select', gitSelect));
   gitSelect.addEventListener('change', (): void => a.onGitChange(gitSelect.value));
+
+  // 프로젝트/저장소 — API 로 목록 로드 후 채움 (branch-modal.ts 에서 주입)
+  const projectSelect = document.createElement('select');
+  projectSelect.id = 'branch-project-select';
+  projectSelect.className = 'select';
+  projectSelect.disabled = true;
+  const projectLoading = document.createElement('option');
+  projectLoading.value = '';
+  projectLoading.textContent = '프로젝트 목록 로드 중…';
+  projectSelect.appendChild(projectLoading);
+  projectSelect.addEventListener('change', (): void => a.onProjectChange(projectSelect.value));
+  body.appendChild(fieldWrap('프로젝트 / 저장소', 'branch-project-select', projectSelect));
 
   // 베이스 브랜치
   const baseSelect = document.createElement('select');
@@ -130,7 +144,7 @@ export function buildBranchModalView(a: BranchModalViewArgs): BranchModalView {
   footer.appendChild(createBtn);
   modal.appendChild(footer);
 
-  return { backdrop, gitSelect, baseSelect, nameInput, nameError, copyBtn, createBtn, feedback };
+  return { backdrop, gitSelect, projectSelect, baseSelect, nameInput, nameError, copyBtn, createBtn, feedback };
 }
 
 function buildHeader(issue: JiraIssueSummary, onClose: () => void): HTMLElement {

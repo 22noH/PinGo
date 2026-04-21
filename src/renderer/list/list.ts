@@ -16,6 +16,7 @@ let currentInteractions: Record<string, ItemInteraction> = {};
 let currentJira: JiraIssueSummary[] = [];
 let gitConnections: GitConfig[] = [];
 let activeFilter: Filter = 'all';
+let activeTab: TabKey = 'mr';
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -33,6 +34,8 @@ const countUnseen = $<HTMLElement>('count-unseen');
 const jiraList = $<HTMLUListElement>('jira-list');
 const jiraEmpty = $<HTMLElement>('jira-empty');
 const jiraCount = $<HTMLElement>('jira-count');
+const jiraSearch = $<HTMLInputElement>('jira-search');
+let jiraQuery = '';
 const tabMrCount = $<HTMLElement>('tab-mr-count');
 const tabJiraCount = $<HTMLElement>('tab-jira-count');
 const tabMr = $<HTMLButtonElement>('tab-mr');
@@ -55,6 +58,7 @@ function setFilter(f: Filter): void {
 }
 
 function setTab(t: TabKey): void {
+  activeTab = t;
   tabMr.classList.toggle('is-active', t === 'mr');
   tabJira.classList.toggle('is-active', t === 'jira');
   tabMr.setAttribute('aria-selected', String(t === 'mr'));
@@ -164,13 +168,39 @@ function renderMrItem(item: ReviewItemSummary): HTMLLIElement {
   return li;
 }
 
+function matchesJiraQuery(issue: JiraIssueSummary, q: string): boolean {
+  if (!q) return true;
+  const hay = [
+    issue.issueKey,
+    issue.summary,
+    issue.status,
+    issue.priority,
+    issue.issueType,
+    issue.assignee?.displayName ?? '',
+    issue.reporter?.displayName ?? '',
+    issue.projectKey,
+  ].join(' ').toLowerCase();
+  // 공백으로 쪼갠 모든 토큰 포함(AND)
+  return q.split(/\s+/).filter(Boolean).every((t) => hay.includes(t));
+}
+
 function renderJiraList(): void {
   jiraList.innerHTML = '';
-  jiraEmpty.hidden = currentJira.length > 0;
-  for (const issue of currentJira) jiraList.appendChild(renderJiraItem(issue));
-  jiraCount.textContent = String(currentJira.length);
+  const q = jiraQuery.trim().toLowerCase();
+  const filtered = q ? currentJira.filter((i) => matchesJiraQuery(i, q)) : currentJira;
+  jiraEmpty.hidden = filtered.length > 0;
+  for (const issue of filtered) jiraList.appendChild(renderJiraItem(issue));
+  const countLabel = q && filtered.length !== currentJira.length
+    ? `${filtered.length}/${currentJira.length}`
+    : String(currentJira.length);
+  jiraCount.textContent = countLabel;
   tabJiraCount.textContent = String(currentJira.length);
 }
+
+jiraSearch.addEventListener('input', (): void => {
+  jiraQuery = jiraSearch.value;
+  renderJiraList();
+});
 
 function statusClass(status: string): string {
   const s = status.toLowerCase();
@@ -179,6 +209,30 @@ function statusClass(status: string): string {
   if (s.includes('block')) return 'is-blocked';
   if (s.includes('review')) return 'is-review';
   return 'is-todo';
+}
+
+/**
+ * Jira 이슈 타입 → UI 클래스 + 한국어 라벨.
+ * Jira 인스턴스마다 스키마/이름이 다를 수 있어서 keyword 기반 유연 매칭.
+ */
+function issueTypeMeta(name: string): { className: string; label: string } {
+  const n = name.toLowerCase();
+  if (n.includes('bug') || n.includes('버그') || n.includes('결함')) {
+    return { className: 'is-bug', label: name || 'Bug' };
+  }
+  if (n.includes('story') || n.includes('스토리')) {
+    return { className: 'is-story', label: name || 'Story' };
+  }
+  if (n.includes('improvement') || n.includes('enhancement') || n.includes('개선')) {
+    return { className: 'is-improvement', label: name || 'Improvement' };
+  }
+  if (n.includes('sub-task') || n.includes('subtask') || n.includes('하위')) {
+    return { className: 'is-subtask', label: name || 'Sub-task' };
+  }
+  if (n.includes('task') || n.includes('작업')) {
+    return { className: 'is-task', label: name || 'Task' };
+  }
+  return { className: 'is-other', label: name || 'Issue' };
 }
 
 function renderJiraItem(issue: JiraIssueSummary): HTMLLIElement {
@@ -190,6 +244,28 @@ function renderJiraItem(issue: JiraIssueSummary): HTMLLIElement {
 
   const top = document.createElement('div');
   top.className = 'jira-item-top';
+
+  // 이슈 타입 뱃지 — 타입이 있을 때만
+  if (issue.issueType) {
+    const meta = issueTypeMeta(issue.issueType);
+    const typeEl = document.createElement('span');
+    typeEl.className = `jira-type ${meta.className}`;
+    typeEl.title = issue.issueType;
+    if (issue.issueTypeIconUrl) {
+      const img = document.createElement('img');
+      img.className = 'jira-type-icon';
+      img.src = issue.issueTypeIconUrl;
+      img.alt = '';
+      img.width = 14;
+      img.height = 14;
+      typeEl.appendChild(img);
+    }
+    const lbl = document.createElement('span');
+    lbl.textContent = meta.label;
+    typeEl.appendChild(lbl);
+    top.appendChild(typeEl);
+  }
+
   const key = document.createElement('span');
   key.className = 'jira-key';
   key.textContent = issue.issueKey;
@@ -240,9 +316,11 @@ function renderJiraItem(issue: JiraIssueSummary): HTMLLIElement {
 async function bootstrap(): Promise<void> {
   let loadedOk = false;
   try {
-    const { items, interactions } = await window.electronAPI.loadList();
-    currentItems = items;
-    currentInteractions = interactions;
+    const snap = await window.electronAPI.loadList();
+    currentItems = snap.items;
+    currentInteractions = snap.interactions;
+    // main 에서 내려주는 Jira 스냅샷을 즉시 반영 (없으면 [] 유지).
+    currentJira = Array.isArray(snap.jiraIssues) ? snap.jiraIssues : [];
     renderMrList();
     loadedOk = true;
   } catch (err) {
@@ -287,19 +365,30 @@ window.electronAPI.onJiraIssueNew((issue: JiraIssueSummary): void => {
   const idx = currentJira.findIndex(i => i.id === issue.id);
   if (idx >= 0) currentJira[idx] = issue;
   else currentJira.unshift(issue);
-  currentJira = currentJira.slice(0, 20);
+  currentJira = currentJira.slice(0, 500);
   renderJiraList();
+});
+
+// F5 또는 Ctrl/Cmd+R 로 새로고침 — 활성 탭만 갱신
+document.addEventListener('keydown', (e: KeyboardEvent): void => {
+  const isReload = e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r');
+  if (!isReload) return;
+  e.preventDefault();
+  if (btnRefresh.disabled) return;
+  btnRefresh.click();
 });
 
 btnRefresh.addEventListener('click', () => {
   btnRefresh.classList.add('is-spinning');
   btnRefresh.disabled = true;
-  listStatus.textContent = '새로고침 중…';
-  window.electronAPI.refreshList();
+  // 활성 탭에 해당하는 소스만 새로고침 (MR이면 MR만, Jira면 Jira만)
+  const kind = activeTab === 'jira' ? 'jira' : 'mr';
+  listStatus.textContent = `새로고침 중… (${kind === 'jira' ? 'Jira' : 'MR/PR'})`;
+  window.electronAPI.refreshList(kind);
   setTimeout(() => {
     btnRefresh.classList.remove('is-spinning');
     btnRefresh.disabled = false;
-    if (listStatus.textContent === '새로고침 중…') {
+    if (listStatus.textContent.startsWith('새로고침 중…')) {
       updateStatusToLastSynced();
     }
   }, 5000);

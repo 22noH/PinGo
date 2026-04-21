@@ -12,6 +12,7 @@ import type {
   Discussion,
   GitConfig,
   GitIssue,
+  GitProjectSummary,
   PipelineInfo,
   ReviewItemSummary,
   ReviewItemWithChanges,
@@ -47,6 +48,8 @@ export interface GitProvider {
   createBranch?(payload: BranchCreatePayload): Promise<BranchCreateResult>;
   /** 브랜치 목록 (base branch 선택용) */
   listBranches?(payload: BranchListPayload): Promise<BranchListResult>;
+  /** 사용자가 접근 가능한 프로젝트/저장소 목록 (브랜치 생성 대상 선택용) */
+  listProjects?(signal?: AbortSignal): Promise<GitProjectSummary[]>;
   /** 기존 토론 스레드에 답글 */
   postReply?(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentReplyResult>;
 }

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';">
-  <title>Pingo — 리뷰 목록</title>
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https:;">
+  <title>Pingo — 대시보드</title>
   <link rel="stylesheet" href="../shared/tokens.css">
   <link rel="stylesheet" href="../shared/components.css">
   <link rel="stylesheet" href="../shared/components-v2.css">
@@ -14,7 +14,7 @@
 </head>
 <body>
   <div class="list-titlebar">
-    <span class="list-titlebar-text">Pingo — 리뷰 목록</span>
+    <span class="list-titlebar-text">Pingo — 대시보드</span>
   </div>
   <main class="list-root">
     <nav class="tab-bar" role="tablist" aria-label="목록 섹션" style="margin-bottom: var(--space-4);">
@@ -57,7 +57,9 @@
     <section id="panel-jira" role="tabpanel" aria-labelledby="tab-jira" class="tab-panel" hidden>
       <div class="jira-section" style="margin-top:0; padding-top:0; border-top:none;">
         <header class="jira-section-header">
-          <span class="jira-section-title"><span class="accent"></span>Jira 이슈 (최근 <span id="jira-count">0</span>)</span>
+          <span class="jira-section-title"><span class="accent"></span>Jira 이슈 (<span id="jira-count">0</span>)</span>
+          <input id="jira-search" class="input jira-search" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="키 · 제목 · 상태 · 담당자 검색…">
         </header>
         <ul id="jira-list" class="jira-list"></ul>
         <div id="jira-empty" class="jira-empty" hidden>

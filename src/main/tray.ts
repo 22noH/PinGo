@@ -189,8 +189,11 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
     tray.setContextMenu(buildMenu());
   };
 
-  tray.on('click', () => {
-    tray.popUpContextMenu(buildMenu());
+  // 좌클릭은 아무 동작 없음 (이전엔 컨텍스트 메뉴를 띄웠는데, 더블클릭 후에도
+  // 잔상처럼 남아 거슬린다는 피드백으로 제거). 메뉴는 우클릭 전용.
+  // 우클릭은 tray.setContextMenu(...) 덕분에 Windows/macOS에서 자동으로 동작.
+  tray.on('double-click', () => {
+    handlers.onOpenList();
   });
 
   applyIcon();

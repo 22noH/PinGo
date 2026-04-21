@@ -33,6 +33,8 @@ import type {
   BranchCreateResult,
   BranchListPayload,
   BranchListResult,
+  ProjectListPayload,
+  ProjectListResult,
   ProjectFiltersLoadResult,
   ProjectFiltersSavePayload,
 } from './shared/types';
@@ -74,6 +76,7 @@ import {
   LIST_JIRA_UPDATED,
   BRANCH_CREATE,
   BRANCH_LIST,
+  PROJECT_LIST,
   PROJECT_FILTERS_LOAD,
   PROJECT_FILTERS_SAVE,
 } from './shared/constants';
@@ -130,7 +133,7 @@ export interface ElectronAPI {
   // 목록 윈도우 API
   loadList: () => Promise<ListLoadResult>;
   openReviewForItem: (itemId: string) => void;
-  refreshList: () => void;
+  refreshList: (kind?: 'mr' | 'jira' | 'all') => void;
   onListUpdated: (cb: (payload: ListLoadResult) => void) => () => void;
 
   // ── v3 신규 — Jira ─────────────────────────────────────
@@ -145,6 +148,7 @@ export interface ElectronAPI {
   // ── v3 신규 — 브랜치 ────────────────────────────────────
   createBranch: (payload: BranchCreatePayload) => Promise<BranchCreateResult>;
   listBranches: (payload: BranchListPayload) => Promise<BranchListResult>;
+  listProjects: (payload: ProjectListPayload) => Promise<ProjectListResult>;
 
   // ── v3 신규 — 댓글 답글 ────────────────────────────────
   postCommentReply: (payload: CommentReplyPayload) => Promise<CommentReplyResult>;
@@ -275,8 +279,8 @@ const api: ElectronAPI = {
   openReviewForItem: (itemId: string): void => {
     ipcRenderer.send(LIST_OPEN_REVIEW, itemId);
   },
-  refreshList: (): void => {
-    ipcRenderer.send(LIST_REFRESH);
+  refreshList: (kind?: 'mr' | 'jira' | 'all'): void => {
+    ipcRenderer.send(LIST_REFRESH, kind ?? 'all');
   },
   onListUpdated: (cb: (payload: ListLoadResult) => void): (() => void) => {
     const handler = (_: IpcRendererEvent, payload: ListLoadResult): void => cb(payload);
@@ -307,6 +311,8 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(BRANCH_CREATE, payload) as Promise<BranchCreateResult>,
   listBranches: (payload: BranchListPayload): Promise<BranchListResult> =>
     ipcRenderer.invoke(BRANCH_LIST, payload) as Promise<BranchListResult>,
+  listProjects: (payload: ProjectListPayload): Promise<ProjectListResult> =>
+    ipcRenderer.invoke(PROJECT_LIST, payload) as Promise<ProjectListResult>,
 
   // ── v3 — 댓글 답글 ────────────────────────────────────
   postCommentReply: (payload: CommentReplyPayload): Promise<CommentReplyResult> =>

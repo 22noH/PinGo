@@ -185,9 +185,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.openReviewById(itemId);
   });
 
-  ipcMain.on(LIST_REFRESH, () => {
-    deps.refreshPoller();
-    deps.refreshJiraBridge();
+  ipcMain.on(LIST_REFRESH, (_e, kind: unknown) => {
+    const k = kind === 'mr' || kind === 'jira' || kind === 'all' ? kind : 'all';
+    if (k === 'mr' || k === 'all') deps.refreshPoller();
+    if (k === 'jira' || k === 'all') deps.refreshJiraBridge();
   });
 
   // ── 탭 드래그: 릴리즈 시점에 드롭 위치 판단 ─────────────────

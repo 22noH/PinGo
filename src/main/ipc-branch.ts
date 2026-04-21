@@ -7,6 +7,8 @@ import type {
   BranchCreateResult,
   BranchListPayload,
   BranchListResult,
+  ProjectListPayload,
+  ProjectListResult,
   StoreSchema,
 } from '../shared/types';
 import {
@@ -15,6 +17,7 @@ import {
   BRANCH_NAME_MAX_SLUG_LEN,
   BRANCH_NAME_MAX_TOTAL_LEN,
   BRANCH_NAME_PREFIX,
+  PROJECT_LIST,
 } from '../shared/constants';
 import { createGitProvider } from './providers/git/git-provider';
 
@@ -138,6 +141,27 @@ async function handleList(
   }
 }
 
+async function handleListProjects(
+  deps: BranchIpcDeps,
+  payload: ProjectListPayload,
+): Promise<ProjectListResult> {
+  const settings = deps.store.get('settings');
+  const cfg = settings.gitConnections.find((c) => c.id === payload.gitConfigId);
+  if (!cfg) return { success: false, error: '연결을 찾을 수 없습니다' };
+  const provider = createGitProvider(cfg);
+  if (!provider.listProjects) {
+    return { success: false, error: '이 provider 는 프로젝트 목록을 지원하지 않습니다' };
+  }
+  try {
+    const projects = await provider.listProjects();
+    return { success: true, projects };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error(`ipc-branch: listProjects failed: ${msg.slice(0, 200)}`);
+    return { success: false, error: 'list_failed' };
+  }
+}
+
 export function registerBranchHandlers(deps: BranchIpcDeps): void {
   ipcMain.handle(
     BRANCH_CREATE,
@@ -149,10 +173,16 @@ export function registerBranchHandlers(deps: BranchIpcDeps): void {
     (_e, payload: BranchListPayload): Promise<BranchListResult> =>
       handleList(deps, payload),
   );
+  ipcMain.handle(
+    PROJECT_LIST,
+    (_e, payload: ProjectListPayload): Promise<ProjectListResult> =>
+      handleListProjects(deps, payload),
+  );
   log.info('ipc-branch: handlers registered');
 }
 
 export function unregisterBranchHandlers(): void {
   ipcMain.removeHandler(BRANCH_CREATE);
   ipcMain.removeHandler(BRANCH_LIST);
+  ipcMain.removeHandler(PROJECT_LIST);
 }

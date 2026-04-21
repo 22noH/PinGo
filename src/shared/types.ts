@@ -35,14 +35,28 @@ export type AIProviderType =
   | 'openai-api'
   | 'ollama';
 
+/** Claude Code CLI `--effort <level>` 허용값 */
+export type ClaudeCLIEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 export interface ClaudeCLIConfig {
   type: 'claude-cli';
   execPath?: string;
+  /** 모델 별칭 또는 전체 id (예: 'haiku', 'sonnet', 'opus', 'claude-sonnet-4-6'). 빈값/undefined → CLI 기본 */
+  model?: string;
+  /** `--effort` 플래그값. 미설정 → CLI 기본(high) */
+  effort?: ClaudeCLIEffort;
 }
+
+/** Codex CLI `-c model_reasoning_effort=<...>` 허용값 */
+export type CodexCLIEffort = 'minimal' | 'low' | 'medium' | 'high';
 
 export interface CodexCLIConfig {
   type: 'codex-cli';
   execPath?: string;
+  /** `-m/--model` (예: 'o3', 'gpt-5-codex'). 빈값 → CLI/config 기본 */
+  model?: string;
+  /** `-c model_reasoning_effort=<level>`. 빈값 → CLI/config 기본 */
+  reasoningEffort?: CodexCLIEffort;
 }
 
 export interface AnthropicAPIConfig {
@@ -190,6 +204,11 @@ export interface AppSettings {
   pipelineNotificationsEnabled?: boolean;
   /** MR 승인/변경요청 알림 ON/OFF (기본: true) */
   approvalNotificationsEnabled?: boolean;
+  /**
+   * 대시보드 창 여는 전역 단축키 (Electron accelerator 포맷, 예: 'CommandOrControl+Shift+D').
+   * 빈 문자열/undefined 면 미등록.
+   */
+  dashboardHotkey?: string;
 }
 
 // ── 폴러 이벤트 종류 (v2 3개 + v3 5개) ─────────────────────
@@ -309,6 +328,8 @@ export type NotificationReason =
 export interface ListLoadResult {
   items: ReviewItemSummary[];
   interactions: Record<string, ItemInteraction>;
+  /** 초기 로드 시 현재 보관된 Jira 이슈 스냅샷 (push 업데이트 이전 공백 회피용). 업데이트 푸시에서는 생략. */
+  jiraIssues?: import('./types-jira').JiraIssueSummary[];
 }
 
 export interface TrayStateChangedPayload {

@@ -1,5 +1,5 @@
 // main/main.ts — Electron 앱 엔트리포인트 (v2)
-import { app, BrowserWindow, Menu, shell } from 'electron';
+import { app, BrowserWindow, globalShortcut, Menu, shell } from 'electron';
 import * as path from 'path';
 import log, { LogMessage } from 'electron-log';
 import type {
@@ -14,6 +14,7 @@ import type {
 // TEST: 목업 테스트 시 아래 import 주석 해제
 // import { createMockTestItem, createMockTestItem2 } from './mock-test-item';
 import {
+  DEFAULT_DASHBOARD_HOTKEY,
   ITEM_NEW,
   LIST_UPDATED,
   MAX_RECENT_ITEMS,
@@ -139,14 +140,51 @@ function openSettingsWindow(): void {
   }
 }
 
+let currentDashboardHotkey: string | null = null;
+
+function applyDashboardHotkey(accel: string | undefined): void {
+  const next = (accel ?? '').trim();
+  if (currentDashboardHotkey && currentDashboardHotkey !== next) {
+    try { globalShortcut.unregister(currentDashboardHotkey); } catch { /* noop */ }
+    currentDashboardHotkey = null;
+  }
+  if (!next) return;
+  if (currentDashboardHotkey === next) return;
+  try {
+    const ok = globalShortcut.register(next, (): void => { openListWindow(); });
+    if (!ok) {
+      log.warn(`main: globalShortcut register failed (hotkey=${next}) — 이미 다른 앱이 점유 중일 수 있음`);
+      return;
+    }
+    currentDashboardHotkey = next;
+    log.info(`main: dashboard hotkey registered (${next})`);
+  } catch (err) {
+    log.warn(`main: globalShortcut register error (${next}): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function openListWindow(): void {
   if (!listWindow || listWindow.isDestroyed()) {
-    listWindow = createAppWindow(WIN_DIRS, 'list/index.html', 'Pingo — 리뷰 목록', 900, 680, true);
+    listWindow = createAppWindow(WIN_DIRS, 'list/index.html', 'Pingo — 대시보드', 900, 680, true);
     listWindow.on('closed', () => { listWindow = null; });
+    // createAppWindow 가 ready-to-show 로 show() 까지는 걸어두지만, 트레이 클릭에서
+    // 호출되면 포커스가 바로 오지 않아 "첫 클릭에선 안 뜸" 처럼 보이는 문제가 있었음.
+    // → ready-to-show 시 show + focus + moveTop 한 번 더 보장.
+    listWindow.once('ready-to-show', () => {
+      if (!listWindow || listWindow.isDestroyed()) return;
+      listWindow.show();
+      listWindow.focus();
+      listWindow.moveTop();
+    });
   } else {
+    if (listWindow.isMinimized()) listWindow.restore();
     listWindow.show();
     listWindow.focus();
+    listWindow.moveTop();
   }
+  // 열리자마자 최신 데이터 반영되도록 poller/bridge 에 refresh 요청.
+  poller?.refresh();
+  jiraBridge?.refresh();
 }
 
 function broadcastListUpdate(store: ReturnType<typeof createStore>): void {
@@ -305,6 +343,10 @@ function reconfigurePoller(
 function bootstrap(): void {
   const store = createStore();
   const settings = store.get('settings');
+  // 저장된 단축키 등록 (없으면 기본값 사용)
+  applyDashboardHotkey(settings.dashboardHotkey ?? DEFAULT_DASHBOARD_HOTKEY);
+  // 저장된 recent 스냅샷을 즉시 복원 — 첫 폴링 완료 전에 목록 창을 열어도 빈 화면 안 보이게.
+  lastOpenItems = store.get('recentItems') ?? [];
   const seen: PollerSeenState = {
     items: new Set<string>(store.get('seenItemIds')),
     reviewerAssigned: new Set<string>(store.get('seenReviewerItemIds')),
@@ -371,6 +413,7 @@ function bootstrap(): void {
     },
     onSettingsSaved: (next: AppSettings): void => {
       setTrayState(next.notificationEnabled ? 'ACTIVE' : 'MUTED');
+      applyDashboardHotkey(next.dashboardHotkey ?? DEFAULT_DASHBOARD_HOTKEY);
     },
     onNotificationToggle: (): void => {
       const s = store.get('settings');
@@ -384,6 +427,7 @@ function bootstrap(): void {
     getListSnapshot: () => ({
       items: lastOpenItems,
       interactions: store.get('interactions') ?? {},
+      jiraIssues: store.get('recentJiraIssues') ?? [],
     }),
     openReviewById: (itemId: string): void => {
       const target = lastOpenItems.find((it) => it.id === itemId);
@@ -463,5 +507,6 @@ app.on('before-quit', () => {
   poller?.stop();
   void jiraBridge?.stop();
   tray?.destroy();
+  try { globalShortcut.unregisterAll(); } catch { /* noop */ }
   unregisterIpcHandlers();
 });

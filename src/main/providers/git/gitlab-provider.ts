@@ -235,6 +235,9 @@ export class GitLabProvider implements GitProvider {
   listBranches(payload: BranchListPayload): Promise<BranchListResult> {
     return V3.listBranches(this.client, payload);
   }
+  listProjects(signal?: AbortSignal): Promise<import('../../../shared/types').GitProjectSummary[]> {
+    return V3.listProjects(this.client, signal);
+  }
   postReply(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentPostResult> {
     return V3.postReply(this.client, item, payload);
   }

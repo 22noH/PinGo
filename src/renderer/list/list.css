@@ -1,13 +1,20 @@
+html, body {
+  height: 100%;
+}
 body {
   margin: 0;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--fs-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 내부 패널만 스크롤 */
 }
 
 .list-titlebar {
   height: 42px;
+  flex: 0 0 auto;
   -webkit-app-region: drag;
   display: flex;
   align-items: center;
@@ -24,7 +31,31 @@ body {
 .list-root {
   padding: var(--space-4) var(--space-5) var(--space-5);
   max-width: 1100px;
+  width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;            /* flex 자식이 overflow를 먹을 수 있게 */
+  display: flex;
+  flex-direction: column;
+}
+
+/* 탭바 — 새로고침 버튼 / 상태 텍스트 수직 중앙 정렬 */
+.list-root > .tab-bar {
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+/* 탭 패널이 남은 높이를 모두 차지하고 내부에서만 스크롤 */
+.list-root .tab-panel.is-active {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.list-root .tab-panel.is-active .jira-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 .list-header {
@@ -222,6 +253,46 @@ body {
   text-align: center;
   color: var(--text-muted);
   padding: var(--space-5);
+}
+
+.jira-search {
+  margin-left: auto;
+  max-width: 280px;
+  width: 100%;
+  height: 28px;
+  font-size: var(--fs-sm);
+}
+
+/* 이슈 타입 뱃지 */
+.jira-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  margin-right: var(--space-2);
+}
+.jira-type-icon {
+  display: block;
+  border-radius: 2px;
+}
+.jira-type.is-bug        { background: rgba(243, 139, 168, 0.16); color: #f38ba8; }
+.jira-type.is-task       { background: rgba(137, 180, 250, 0.16); color: #89b4fa; }
+.jira-type.is-story      { background: rgba(166, 227, 161, 0.16); color: #a6e3a1; }
+.jira-type.is-improvement{ background: rgba(148, 226, 213, 0.16); color: #94e2d5; }
+.jira-type.is-subtask    { background: rgba(180, 190, 254, 0.16); color: #b4befe; }
+.jira-type.is-other      { background: var(--bg-tertiary); color: var(--text-secondary); }
+.jira-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
 }
 
 [hidden] { display: none !important; }

@@ -18,7 +18,12 @@ import {
   DEFAULT_OPENAI_MODEL,
   DEFAULT_OPENAI_BASE_URL,
   DEFAULT_OLLAMA_BASE_URL,
+  CLAUDE_CLI_MODELS,
+  CLAUDE_CLI_EFFORTS,
+  CODEX_CLI_MODELS,
+  CODEX_CLI_EFFORTS,
 } from '../../shared/constants';
+import type { ClaudeCLIEffort, CodexCLIEffort } from '../../shared/types';
 import {
   makeInput, makeTokenField, makeModelSelect,
   makeOllamaModelField, loadOllamaModels, showStatus,
@@ -113,6 +118,39 @@ function renderCLIFields(
     cfg.execPath ?? '',
     type === 'claude-cli' ? '/usr/local/bin/claude' : '/usr/local/bin/codex',
     '비워두면 PATH에서 자동 탐색'));
+
+  // claude-cli / codex-cli 전용: 모델 + effort (토큰 예산)
+  if (type === 'claude-cli') {
+    const c = cfg as ClaudeCLIConfig;
+    wrap.appendChild(makeModelSelect(
+      'ai-cli-model',
+      c.model ?? '',
+      Array.from(CLAUDE_CLI_MODELS),
+      '모델 (별칭)',
+    ));
+    wrap.appendChild(makeModelSelect(
+      'ai-cli-effort',
+      c.effort ?? '',
+      Array.from(CLAUDE_CLI_EFFORTS),
+      'Effort (토큰 예산)',
+    ));
+  } else {
+    // codex-cli
+    const c = cfg as CodexCLIConfig;
+    wrap.appendChild(makeModelSelect(
+      'ai-cli-model',
+      c.model ?? '',
+      Array.from(CODEX_CLI_MODELS),
+      '모델',
+    ));
+    wrap.appendChild(makeModelSelect(
+      'ai-cli-effort',
+      c.reasoningEffort ?? '',
+      Array.from(CODEX_CLI_EFFORTS),
+      'Reasoning Effort',
+    ));
+  }
+
   bindDirty(wrap);
   return wrap;
 }
@@ -170,9 +208,24 @@ function readFormIntoCurrent(): void {
     if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) return el.value.trim();
     return '';
   };
-  if (t === 'claude-cli' || t === 'codex-cli') {
+  if (t === 'claude-cli') {
     const execPath = val('ai-exec-path') || undefined;
-    current = { type: t, execPath };
+    const model = val('ai-cli-model') || undefined;
+    const effortRaw = val('ai-cli-effort');
+    const validEfforts: ReadonlyArray<ClaudeCLIEffort> = ['low', 'medium', 'high', 'xhigh', 'max'];
+    const effort = (validEfforts as readonly string[]).includes(effortRaw)
+      ? (effortRaw as ClaudeCLIEffort)
+      : undefined;
+    current = { type: 'claude-cli', execPath, model, effort };
+  } else if (t === 'codex-cli') {
+    const execPath = val('ai-exec-path') || undefined;
+    const model = val('ai-cli-model') || undefined;
+    const effortRaw = val('ai-cli-effort');
+    const validEfforts: ReadonlyArray<CodexCLIEffort> = ['minimal', 'low', 'medium', 'high'];
+    const reasoningEffort = (validEfforts as readonly string[]).includes(effortRaw)
+      ? (effortRaw as CodexCLIEffort)
+      : undefined;
+    current = { type: 'codex-cli', execPath, model, reasoningEffort };
   } else if (t === 'anthropic-api') {
     current = {
       type: 'anthropic-api', apiKey: val('ai-api-key'),

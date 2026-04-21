@@ -28,9 +28,22 @@ export class CodexCLIProvider implements AIProvider {
   ): AIStreamHandle {
     const execPath = resolveCliExecPath('codex', this.config.execPath);
     const useShell = needsShell(execPath);
-    log.info(`codex-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''}`);
 
-    const proc = spawn(execPath, ['-p', prompt], {
+    // `codex exec` 서브커맨드는 non-interactive 모드. 스트리밍 안정적.
+    // -m 으로 model, -c model_reasoning_effort=<level> 로 effort 오버라이드.
+    const args: string[] = ['exec'];
+    const model = (this.config.model ?? '').trim();
+    if (model) args.push('-m', model);
+    const effort = (this.config.reasoningEffort ?? '').trim();
+    if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
+    args.push(prompt);
+
+    log.info(
+      `codex-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''} ` +
+      `model=${model || '(default)'} effort=${effort || '(default)'}`,
+    );
+
+    const proc = spawn(execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: useShell,
     });

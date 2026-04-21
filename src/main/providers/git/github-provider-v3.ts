@@ -9,6 +9,7 @@ import type {
   BranchListResult,
   GitHubConfig,
   GitIssue,
+  GitProjectSummary,
   PipelineInfo,
   ReviewItemAuthor,
   ReviewItemSummary,
@@ -240,6 +241,43 @@ export async function listBranches(
     const msg = err instanceof Error ? err.message : String(err);
     return { success: false, error: msg };
   }
+}
+
+interface GitHubRepoRaw {
+  full_name: string;
+  name: string;
+  description?: string | null;
+  default_branch?: string;
+  archived?: boolean;
+}
+
+/** 인증 사용자가 접근 가능한 저장소 목록 (owner/repo 포맷 value). 2페이지×100 = 최대 200. */
+export async function listProjects(
+  client: AxiosInstance,
+  signal?: AbortSignal,
+): Promise<GitProjectSummary[]> {
+  const out: GitHubRepoRaw[] = [];
+  for (let page = 1; page <= 2; page += 1) {
+    const res = await client.get<GitHubRepoRaw[]>('/user/repos', {
+      params: {
+        per_page: 100,
+        page,
+        sort: 'pushed',
+        affiliation: 'owner,collaborator,organization_member',
+      },
+      signal,
+    });
+    out.push(...res.data);
+    if (res.data.length < 100) break;
+  }
+  return out
+    .filter((r) => !r.archived)
+    .map((r): GitProjectSummary => ({
+      value: r.full_name,
+      name: r.full_name,
+      description: r.description ?? undefined,
+      defaultBranch: r.default_branch,
+    }));
 }
 
 // postReply 는 github-reply.ts 로 분리 (파일 300줄 제한 준수).

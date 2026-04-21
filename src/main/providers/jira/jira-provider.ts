@@ -26,6 +26,7 @@ interface JiraIssueRaw {
     priority?: { name: string } | null;
     assignee?: JiraUserRaw | null;
     reporter?: JiraUserRaw | null;
+    issuetype?: { name?: string; iconUrl?: string; subtask?: boolean } | null;
     created: string;
     updated: string;
     project: { key: string };
@@ -34,7 +35,11 @@ interface JiraIssueRaw {
 
 interface JiraSearchResponse {
   issues: JiraIssueRaw[];
-  total: number;
+  /** 구 엔드포인트(Server/DC /rest/api/2/search)에서만 제공 */
+  total?: number;
+  /** Cloud enhanced search(/rest/api/3/search/jql)에서만 제공 */
+  nextPageToken?: string;
+  isLast?: boolean;
 }
 
 interface JiraMyselfResponse {
@@ -93,8 +98,11 @@ export class JiraProvider {
 
   constructor(config: JiraConfig) {
     this.config = config;
+    // Jira Cloud 는 2025-05-01 부로 구 `/rest/api/{2,3}/search` 제거 → v3 + /search/jql 전용
+    // Server/DC 는 여전히 /rest/api/2/search 사용
+    const apiVersion = config.authType === 'cloud' ? '3' : '2';
     this.client = axios.create({
-      baseURL: `${config.url.replace(/\/$/, '')}/rest/api/2`,
+      baseURL: `${config.url.replace(/\/$/, '')}/rest/api/${apiVersion}`,
       headers: {
         Authorization: buildAuthHeader(config),
         Accept: 'application/json',
@@ -143,21 +151,47 @@ export class JiraProvider {
   }
 
   private async search(jql: string, signal?: AbortSignal): Promise<JiraIssueSummary[]> {
-    const res = await this.client.post<JiraSearchResponse>(
-      '/search',
-      {
-        jql,
-        fields: ['summary', 'status', 'priority', 'assignee', 'reporter', 'created', 'updated', 'project'],
-        maxResults: 50,
-      },
-      { signal },
-    );
-    return res.data.issues.map((raw) => this.normalize(raw));
+    const fields = ['summary', 'status', 'priority', 'assignee', 'reporter', 'issuetype', 'created', 'updated', 'project'];
+    // 안전 상한 — 무한루프/과다 요청 방지.
+    const HARD_CAP = 500;
+    const PAGE_SIZE = 100;
+    const out: JiraIssueRaw[] = [];
+
+    if (this.config.authType === 'cloud') {
+      // Cloud enhanced search: nextPageToken 기반 페이지네이션.
+      let nextPageToken: string | undefined = undefined;
+      for (let guard = 0; guard < 20; guard += 1) {
+        const body: Record<string, unknown> = { jql, fields, maxResults: PAGE_SIZE };
+        if (nextPageToken) body.nextPageToken = nextPageToken;
+        const res = await this.client.post<JiraSearchResponse>('/search/jql', body, { signal });
+        out.push(...res.data.issues);
+        if (out.length >= HARD_CAP) break;
+        nextPageToken = res.data.nextPageToken;
+        if (!nextPageToken || res.data.isLast) break;
+      }
+    } else {
+      // Server/DC: startAt/total 기반 페이지네이션.
+      let startAt = 0;
+      for (let guard = 0; guard < 20; guard += 1) {
+        const res = await this.client.post<JiraSearchResponse & { startAt?: number }>(
+          '/search',
+          { jql, fields, maxResults: PAGE_SIZE, startAt },
+          { signal },
+        );
+        out.push(...res.data.issues);
+        if (out.length >= HARD_CAP) break;
+        const total = res.data.total ?? out.length;
+        startAt += res.data.issues.length;
+        if (res.data.issues.length === 0 || startAt >= total) break;
+      }
+    }
+
+    return out.slice(0, HARD_CAP).map((raw) => this.normalize(raw));
   }
 
-  /** 나에게 할당된 open 이슈 */
+  /** 나에게 할당된 open 이슈 (Epic 제외 — 에픽은 상위 컨테이너라 작업 대상이 아님) */
   async fetchAssignedIssues(signal?: AbortSignal): Promise<JiraIssueSummary[]> {
-    const base = 'assignee = currentUser() AND resolution = Unresolved';
+    const base = 'assignee = currentUser() AND resolution = Unresolved AND issuetype != Epic';
     const proj = this.projectClause();
     const jql = proj ? `${base} AND ${proj}` : base;
     return this.search(`${jql} ORDER BY updated DESC`, signal);
@@ -197,6 +231,8 @@ export class JiraProvider {
       summary: raw.fields.summary,
       status: raw.fields.status?.name ?? '',
       priority: raw.fields.priority?.name ?? '',
+      issueType: raw.fields.issuetype?.name ?? '',
+      issueTypeIconUrl: raw.fields.issuetype?.iconUrl,
       assignee,
       reporter,
       webUrl: `${baseUrl}/browse/${raw.key}`,

@@ -64,14 +64,22 @@ export function createJiraPoller(
     return events;
   };
 
-  const updateRecent = (issues: JiraIssueSummary[]): void => {
-    if (issues.length === 0) return;
+  /** 폴링 tick 결과는 "현재 열려있는 전체 이슈" 스냅샷 — 치환. */
+  const replaceRecent = (issues: JiraIssueSummary[]): void => {
+    const sorted = [...issues].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const capped = sorted.slice(0, 500);
+    store.set('recentJiraIssues', capped);
+    onIssues(capped);
+  };
+
+  /** 웹훅 단건 수신 — 기존 목록에 머지. */
+  const mergeOneIntoRecent = (issue: JiraIssueSummary): void => {
     const prev = store.get('recentJiraIssues') ?? [];
     const byId = new Map(prev.map((i) => [i.id, i]));
-    for (const it of issues) byId.set(it.id, it);
+    byId.set(issue.id, issue);
     const merged = Array.from(byId.values())
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .slice(0, 20);
+      .slice(0, 500);
     store.set('recentJiraIssues', merged);
     onIssues(merged);
   };
@@ -108,7 +116,7 @@ export function createJiraPoller(
         }
       }
 
-      updateRecent(allIssues);
+      replaceRecent(allIssues);
       const events = [...assignedEvents];
       if (events.length > 0) {
         log.info(`jira-poller: events=${events.length}`);
@@ -151,7 +159,7 @@ export function createJiraPoller(
       if (seen.has(ev.issue.id)) return;
       seen.add(ev.issue.id);
       store.set('seenJiraIssueIds', capTail(Array.from(seen), MAX_SEEN_JIRA_ISSUE_IDS));
-      updateRecent([ev.issue]);
+      mergeOneIntoRecent(ev.issue);
       onEvents([ev]);
     },
   };
