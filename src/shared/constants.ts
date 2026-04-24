@@ -67,6 +67,10 @@ export const BRANCH_CREATE = 'branch:create' as const;
 export const BRANCH_LIST   = 'branch:list'   as const;
 /** 사용자가 접근 가능한 프로젝트/저장소 목록 조회 */
 export const PROJECT_LIST  = 'project:list'  as const;
+/** 리뷰 캐시 조회 (렌더러 → 메인): itemId 로 이전 AI 리뷰 마크다운 반환 */
+export const REVIEW_CACHE_LOAD = 'review:cache:load' as const;
+/** 리뷰 캐시 저장 (렌더러 → 메인): itemId + markdown */
+export const REVIEW_CACHE_SAVE = 'review:cache:save' as const;
 
 // ── v3 신규 IPC — 댓글 답글 ────────────────────────────────
 export const COMMENT_REPLY = 'comment:reply' as const;
@@ -118,6 +122,8 @@ export type RendererToMainChannel =
   | typeof BRANCH_CREATE
   | typeof BRANCH_LIST
   | typeof PROJECT_LIST
+  | typeof REVIEW_CACHE_LOAD
+  | typeof REVIEW_CACHE_SAVE
   | typeof PROJECT_FILTERS_LOAD
   | typeof PROJECT_FILTERS_SAVE;
 
@@ -129,8 +135,17 @@ export const DEFAULT_DASHBOARD_HOTKEY = 'CommandOrControl+Shift+D';
 export const MIN_POLL_INTERVAL_MS = 10_000;
 export const MAX_SEEN_ITEM_IDS = 200;
 export const MAX_RECENT_ITEMS = 20;
-export const MAX_CHANGES_IN_REVIEW = 10;
-export const MAX_DIFF_CHARS = 4000;
+/**
+ * AI 리뷰 프롬프트에 포함할 파일 수 상한.
+ * Claude Sonnet/Opus 200K 컨텍스트 기준으로 충분한 여유 → 30까지 확대.
+ * 기존 10은 너무 보수적이라 대형 MR 에서 새 커밋의 파일이 잘려 AI가 못 보는 버그 유발.
+ */
+export const MAX_CHANGES_IN_REVIEW = 30;
+/**
+ * 각 파일 diff 문자 수 상한.
+ * 기존 4000 → 12000 으로 확대. 큰 리팩터링/포맷 변경도 거의 안 잘림.
+ */
+export const MAX_DIFF_CHARS = 12_000;
 export const NEW_MR_BLINK_INTERVAL_MS = 800;
 
 // ── v3 Jira 상수 ────────────────────────────────────────────

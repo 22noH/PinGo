@@ -232,6 +232,39 @@ function updateRecentFromOpenItems(
   // 전체 open list 도 따로 보관 — 목록 윈도우에서 사용
   lastOpenItems = sorted;
   broadcastListUpdate(store);
+  // MR/PR 이 merged/closed 되어 open 목록에서 사라지면 해당 리뷰 캐시/인터랙션도 정리.
+  // 안전장치: openItems 가 비어 있으면(폴링 실패/미설정) 실행 안 함.
+  if (openItems.length > 0) pruneStaleData(store, openItems);
+}
+
+function pruneStaleData(
+  store: ReturnType<typeof createStore>,
+  openItems: ReviewItemSummary[],
+): void {
+  const openIds = new Set(openItems.map((it) => it.id));
+  // 리뷰 캐시 정리
+  const cache = store.get('reviewCache') ?? {};
+  let cacheChanged = false;
+  for (const id of Object.keys(cache)) {
+    if (!openIds.has(id)) {
+      delete cache[id];
+      cacheChanged = true;
+    }
+  }
+  if (cacheChanged) store.set('reviewCache', cache);
+  // 인터랙션 기록(읽음/리뷰/댓글) 도 함께 정리 — UI 뱃지 stale 방지.
+  const interactions = store.get('interactions') ?? {};
+  let ixChanged = false;
+  for (const id of Object.keys(interactions)) {
+    if (!openIds.has(id)) {
+      delete interactions[id];
+      ixChanged = true;
+    }
+  }
+  if (ixChanged) store.set('interactions', interactions);
+  if (cacheChanged || ixChanged) {
+    log.info(`main: pruned stale data — cache=${cacheChanged} interactions=${ixChanged}`);
+  }
 }
 
 type InteractionKind = 'opened' | 'reviewed' | 'commented';

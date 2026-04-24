@@ -275,6 +275,12 @@ export interface StoreSchema {
    * 설정 UI 에 표시만, 사용자 직접 입력 금지. (§20.13.I1)
    */
   jiraWebhookToken?: string;
+  /**
+   * itemId → AI 리뷰 결과(마크다운 텍스트) 캐시.
+   * 리뷰 창을 닫거나 목록에서 다른 항목으로 이동해도 재실행 없이 복원 가능.
+   * 크기 제한: 최대 200항목, 각 항목 최대 200KB (tail 잘라냄).
+   */
+  reviewCache?: Record<string, { markdown: string; updatedAt: string }>;
 }
 
 // ── IPC 페이로드 타입 ───────────────────────────────────────

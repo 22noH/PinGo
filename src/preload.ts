@@ -77,6 +77,8 @@ import {
   BRANCH_CREATE,
   BRANCH_LIST,
   PROJECT_LIST,
+  REVIEW_CACHE_LOAD,
+  REVIEW_CACHE_SAVE,
   PROJECT_FILTERS_LOAD,
   PROJECT_FILTERS_SAVE,
 } from './shared/constants';
@@ -135,6 +137,10 @@ export interface ElectronAPI {
   openReviewForItem: (itemId: string) => void;
   refreshList: (kind?: 'mr' | 'jira' | 'all') => void;
   onListUpdated: (cb: (payload: ListLoadResult) => void) => () => void;
+
+  // AI 리뷰 결과 캐시
+  loadReviewCache: (itemId: string) => Promise<{ markdown: string; updatedAt: string } | null>;
+  saveReviewCache: (itemId: string, markdown: string) => void;
 
   // ── v3 신규 — Jira ─────────────────────────────────────
   loadJiraConnections: () => Promise<JiraConnectionsLoadResult>;
@@ -313,6 +319,13 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(BRANCH_LIST, payload) as Promise<BranchListResult>,
   listProjects: (payload: ProjectListPayload): Promise<ProjectListResult> =>
     ipcRenderer.invoke(PROJECT_LIST, payload) as Promise<ProjectListResult>,
+
+  // AI 리뷰 결과 캐시
+  loadReviewCache: (itemId: string): Promise<{ markdown: string; updatedAt: string } | null> =>
+    ipcRenderer.invoke(REVIEW_CACHE_LOAD, itemId) as Promise<{ markdown: string; updatedAt: string } | null>,
+  saveReviewCache: (itemId: string, markdown: string): void => {
+    ipcRenderer.send(REVIEW_CACHE_SAVE, { itemId, markdown });
+  },
 
   // ── v3 — 댓글 답글 ────────────────────────────────────
   postCommentReply: (payload: CommentReplyPayload): Promise<CommentReplyResult> =>

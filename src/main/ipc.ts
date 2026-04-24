@@ -34,6 +34,8 @@ import {
   TAB_DRAG_DETACH,
   NOTIFICATION_TOGGLE,
   REVIEW_ABORT,
+  REVIEW_CACHE_LOAD,
+  REVIEW_CACHE_SAVE,
   REVIEW_START,
   WINDOW_OPEN_MR,
 } from '../shared/constants';
@@ -191,6 +193,37 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     if (k === 'jira' || k === 'all') deps.refreshJiraBridge();
   });
 
+  // ── AI 리뷰 결과 캐시 ─────────────────────────────────────
+  ipcMain.handle(
+    REVIEW_CACHE_LOAD,
+    (_e, itemId: unknown): { markdown: string; updatedAt: string } | null => {
+      if (typeof itemId !== 'string') return null;
+      const cache = deps.store.get('reviewCache') ?? {};
+      return cache[itemId] ?? null;
+    },
+  );
+  ipcMain.on(
+    REVIEW_CACHE_SAVE,
+    (_e, payload: unknown): void => {
+      if (!payload || typeof payload !== 'object') return;
+      const { itemId, markdown } = payload as { itemId?: unknown; markdown?: unknown };
+      if (typeof itemId !== 'string' || typeof markdown !== 'string') return;
+      const cache = deps.store.get('reviewCache') ?? {};
+      // 최대 200KB 캡
+      const trimmed = markdown.length > 200_000
+        ? markdown.slice(markdown.length - 200_000)
+        : markdown;
+      cache[itemId] = { markdown: trimmed, updatedAt: new Date().toISOString() };
+      // 항목 수 캡 200 — 오래된 것부터 제거
+      const entries = Object.entries(cache);
+      if (entries.length > 200) {
+        entries.sort((a, b) => a[1].updatedAt.localeCompare(b[1].updatedAt));
+        for (let i = 0; i < entries.length - 200; i += 1) delete cache[entries[i][0]];
+      }
+      deps.store.set('reviewCache', cache);
+    },
+  );
+
   // ── 탭 드래그: 릴리즈 시점에 드롭 위치 판단 ─────────────────
   ipcMain.on(TAB_DRAG_START, () => { /* drag 시작 알림 — 현재 main 쪽은 no-op */ });
   ipcMain.on(TAB_DRAG_END,   () => { /* 드래그 취소 (pointercancel) — no-op */ });
@@ -272,6 +305,8 @@ export function registerIpcHandlers(deps: IpcDeps): void {
 export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler(COMMENT_POST);
   ipcMain.removeAllListeners(REVIEW_START);
+  ipcMain.removeHandler(REVIEW_CACHE_LOAD);
+  ipcMain.removeAllListeners(REVIEW_CACHE_SAVE);
   ipcMain.removeAllListeners(REVIEW_ABORT);
   ipcMain.removeAllListeners(WINDOW_OPEN_MR);
   ipcMain.removeAllListeners(NOTIFICATION_TOGGLE);

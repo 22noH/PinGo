@@ -150,6 +150,11 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
         '<div class="row text-secondary"><span class="spinner"></span>' +
         `<span>파일 ${it.changes.length}개 분석 완료. AI 응답 대기 중…</span></div>`;
     }
+    // idle 상태면(= 아직 리뷰 시작 안함) 이전에 저장된 AI 리뷰가 있는지 확인 후 복원.
+    // loading/streaming 중이면 건드리지 않음.
+    if (reviewState === 'idle' || reviewState === 'done') {
+      void restoreCachedReview(it);
+    }
   } else {
     // summary만 들어온 경우 = 트레이/토스트에서 MR 열기. 이전 세션의 error/done 상태가
     // 남아있으면 리셋(진행 중인 스트리밍은 보존).
@@ -179,6 +184,12 @@ window.electronAPI.onReviewDone((): void => {
   stream.finalize();
   setReviewState('done');
   updateActive({ state: 'done', savedHtml: markdownEl.innerHTML });
+  // 완료된 리뷰를 영구 캐시에 저장 — 창을 닫았다가 다시 열어도 복원 가능.
+  const tab = getActive();
+  const text = stream.getFullText();
+  if (tab?.item && text.trim().length > 0) {
+    window.electronAPI.saveReviewCache(tab.item.id, text);
+  }
 });
 
 window.electronAPI.onReviewError(({ message }: ReviewErrorPayload): void => {
@@ -207,6 +218,25 @@ function stripChanges(it: ReviewItemWithChanges): ReviewItemSummary {
   const { changes: _changes, ...rest } = it;
   void _changes;
   return rest;
+}
+
+/**
+ * 저장소에 캐시된 AI 리뷰가 있으면 불러와 화면에 복원.
+ * 탭이 이미 다른 이슈로 바뀐 경우 복원하지 않도록 id 체크.
+ */
+async function restoreCachedReview(it: AnyItem): Promise<void> {
+  try {
+    const cached = await window.electronAPI.loadReviewCache(it.id);
+    if (!cached || !cached.markdown.trim()) return;
+    // 비동기 완료 시점에 활성 탭이 다른 이슈면 복원 스킵
+    const active = getActive();
+    if (!active?.item || active.item.id !== it.id) return;
+    // 스트리밍/로딩 중이면 (사용자가 방금 리뷰 시작) 덮어쓰지 않음
+    if (reviewState === 'loading' || reviewState === 'streaming') return;
+    stream.setFullText(cached.markdown);
+    setReviewState('done');
+    updateActive({ state: 'done', savedHtml: markdownEl.innerHTML });
+  } catch { /* 캐시 실패는 무시 — 사용자가 다시 리뷰 실행 가능 */ }
 }
 
 btnReview.addEventListener('click', startReview);

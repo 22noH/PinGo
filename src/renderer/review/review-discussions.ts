@@ -23,10 +23,12 @@ export function renderDiscussions(
   ctx: DiscussionsViewContext,
 ): void {
   container.innerHTML = '';
-  section.hidden = discussions.length === 0;
-  if (countEl) countEl.textContent = String(discussions.length);
-  if (discussions.length === 0) return;
-  for (const d of discussions) container.appendChild(renderThread(d, ctx));
+  // system notes만 있던 thread 는 provider 단에서 notes=[]가 되므로 렌더 대상에서 제외.
+  const visible = discussions.filter((d) => d.notes.length > 0);
+  section.hidden = visible.length === 0;
+  if (countEl) countEl.textContent = String(visible.length);
+  if (visible.length === 0) return;
+  for (const d of visible) container.appendChild(renderThread(d, ctx));
 }
 
 function renderThread(thread: Discussion, ctx: DiscussionsViewContext): HTMLLIElement {
