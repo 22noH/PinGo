@@ -150,13 +150,8 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
         '<div class="row text-secondary"><span class="spinner"></span>' +
         `<span>파일 ${it.changes.length}개 분석 완료. AI 응답 대기 중…</span></div>`;
     }
-    // idle 상태면(= 아직 리뷰 시작 안함) 이전에 저장된 AI 리뷰가 있는지 확인 후 복원.
-    // loading/streaming 중이면 건드리지 않음.
-    if (reviewState === 'idle' || reviewState === 'done') {
-      void restoreCachedReview(it);
-    }
   } else {
-    // summary만 들어온 경우 = 트레이/토스트에서 MR 열기. 이전 세션의 error/done 상태가
+    // summary만 들어온 경우 = 트레이/토스트/대시보드에서 MR 열기. 이전 세션의 error/done 상태가
     // 남아있으면 리셋(진행 중인 스트리밍은 보존).
     if (tab.state === 'error' || tab.state === 'done') {
       updateActive({ state: 'idle', savedHtml: '', errorMsg: '' });
@@ -169,6 +164,11 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
     }
     // summary 단계에서는 discussions 섹션 숨김 (다음 WithChanges 가 올 때 렌더)
     discussionsSection.hidden = true;
+  }
+  // 어느 경로(summary | full) 든 idle/done 상태면 캐시 복원 시도.
+  // loading/streaming 중에 새 ITEM_NEW가 와도 진행 중인 리뷰는 건드리지 않음.
+  if (reviewState === 'idle' || reviewState === 'done') {
+    void restoreCachedReview(it);
   }
 });
 

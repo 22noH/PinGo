@@ -470,6 +470,27 @@ function bootstrap(): void {
       }
       recordInteraction(store, itemId, 'opened');
       openReviewWindow(target);
+      // 백그라운드 pre-fetch: 변경 파일 + 토론 가져와서 ITEM_NEW 한 번 더 송신.
+      // → 사용자가 "리뷰 시작" 누르기 전에도 파일 목록/댓글이 표시되고,
+      //   캐시된 AI 리뷰가 있으면 자동 복원됨.
+      void (async (): Promise<void> => {
+        const cfg = store.get('settings').gitConnections.find((c) => c.id === target.gitConfigId);
+        if (!cfg) return;
+        try {
+          const provider = createGitProvider(cfg);
+          const [full, discussions] = await Promise.all([
+            provider.fetchChanges(target),
+            provider.fetchDiscussions(target).catch((): [] => []),
+          ]);
+          full.discussions = discussions;
+          if (reviewWindow && !reviewWindow.isDestroyed()) {
+            sendItemToWin(reviewWindow, full);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn(`main: openReviewById pre-fetch failed: ${msg.slice(0, 200)}`);
+        }
+      })();
     },
     refreshPoller: (): void => {
       poller?.refresh();
