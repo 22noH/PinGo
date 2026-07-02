@@ -37,6 +37,11 @@ import type {
   ProjectListResult,
   ProjectFiltersLoadResult,
   ProjectFiltersSavePayload,
+  PipelineRunResult,
+  MergeAIStartResult,
+  MergeAIPushResult,
+  MergeAIProgressPayload,
+  ReviewItemSummary,
 } from './shared/types';
 import {
   REVIEW_START,
@@ -81,6 +86,10 @@ import {
   REVIEW_CACHE_SAVE,
   PROJECT_FILTERS_LOAD,
   PROJECT_FILTERS_SAVE,
+  PIPELINE_RUN,
+  MERGE_AI_START,
+  MERGE_AI_PUSH,
+  MERGE_AI_PROGRESS,
 } from './shared/constants';
 
 export interface ElectronAPI {
@@ -166,6 +175,12 @@ export interface ElectronAPI {
   // ── v3 신규 — Jira 웹훅 토큰 ────────────────────────────
   getJiraWebhookSecret: () => Promise<string>;
   regenerateJiraWebhookSecret: () => Promise<string>;
+
+  // ── MR 액션 — 파이프라인 실행 / AI 충돌 머지 ─────────────
+  runPipeline: (item: ReviewItemSummary) => Promise<PipelineRunResult>;
+  startAiMerge: (item: ReviewItemSummary) => Promise<MergeAIStartResult>;
+  pushAiMerge: () => Promise<MergeAIPushResult>;
+  onAiMergeProgress: (cb: (payload: MergeAIProgressPayload) => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -342,6 +357,19 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(JIRA_WEBHOOK_SECRET_GET) as Promise<string>,
   regenerateJiraWebhookSecret: (): Promise<string> =>
     ipcRenderer.invoke(JIRA_WEBHOOK_SECRET_REGENERATE) as Promise<string>,
+
+  // ── MR 액션 — 파이프라인 실행 / AI 충돌 머지 ──────────
+  runPipeline: (item: ReviewItemSummary): Promise<PipelineRunResult> =>
+    ipcRenderer.invoke(PIPELINE_RUN, item) as Promise<PipelineRunResult>,
+  startAiMerge: (item: ReviewItemSummary): Promise<MergeAIStartResult> =>
+    ipcRenderer.invoke(MERGE_AI_START, item) as Promise<MergeAIStartResult>,
+  pushAiMerge: (): Promise<MergeAIPushResult> =>
+    ipcRenderer.invoke(MERGE_AI_PUSH) as Promise<MergeAIPushResult>,
+  onAiMergeProgress: (cb: (payload: MergeAIProgressPayload) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, payload: MergeAIProgressPayload): void => cb(payload);
+    ipcRenderer.on(MERGE_AI_PROGRESS, handler);
+    return (): void => { ipcRenderer.removeListener(MERGE_AI_PROGRESS, handler); };
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

@@ -16,6 +16,7 @@ const SYSTEM_PROMPT = `당신은 시니어 코드 리뷰어입니다. 아래 MR/
 
 const MAX_NOTES_IN_REVIEW = 30;
 const MAX_NOTE_BODY_CHARS = 400;
+const MAX_PREV_REVIEW_CHARS = 8_000;
 
 const EXT_TO_LANG: Record<string, string> = {
   '.ts': 'typescript',
@@ -85,7 +86,26 @@ function buildDiscussionsSection(discussions: Discussion[]): string {
     .join('\n');
 }
 
-export function buildPrompt(item: ReviewItemWithChanges): string {
+function buildPrevReviewSection(prevReview: string | undefined): string {
+  const trimmed = (prevReview ?? '').trim();
+  if (!trimmed) return '';
+  const body =
+    trimmed.length > MAX_PREV_REVIEW_CHARS
+      ? `${trimmed.slice(0, MAX_PREV_REVIEW_CHARS)}\n... (truncated)`
+      : trimmed;
+  return [
+    '',
+    '## 이전 AI 리뷰',
+    '아래는 이 MR/PR에 대해 이전에 작성한 리뷰입니다. 이후 코드가 수정되었을 수 있습니다.',
+    '이번 리뷰 결과에 "이전 지적 사항 확인" 섹션을 만들어, 이전 지적 각각에 대해',
+    '최신 diff 기준으로 해결됐는지(✅ 해결 / ❌ 미해결 / ⚠️ 확인 불가)를 명시하세요.',
+    '',
+    body,
+    '',
+  ].join('\n');
+}
+
+export function buildPrompt(item: ReviewItemWithChanges, prevReview?: string): string {
   const allChanges = item.changes;
   const selected = [...allChanges]
     .sort((a, b) => diffChangedLines(b.diff) - diffChangedLines(a.diff))
@@ -106,6 +126,13 @@ export function buildPrompt(item: ReviewItemWithChanges): string {
   ].join('\n');
 
   const sections = selected.map((c) => {
+    if (!c.diff) {
+      return [
+        `### ${c.new_path}  [${changeStatus(c)}]`,
+        '> diff 없음 — 파일이 너무 커서 서버가 diff를 제공하지 않았거나 내용 변경이 없는 파일입니다.',
+        '',
+      ].join('\n');
+    }
     const lang = EXT_TO_LANG[path.extname(c.new_path).toLowerCase()] ?? 'diff';
     const truncated = c.diff.length > MAX_DIFF_CHARS;
     const body = truncated ? `${c.diff.slice(0, MAX_DIFF_CHARS)}\n... (truncated)` : c.diff;
@@ -118,9 +145,21 @@ export function buildPrompt(item: ReviewItemWithChanges): string {
     ].join('\n');
   });
 
+  const omitted = allChanges.filter((c) => !selected.includes(c));
+  const omittedSection = omitted.length
+    ? [
+        '',
+        `## 프롬프트에서 생략된 파일 (${omitted.length}개)`,
+        '아래 파일들은 diff가 포함되지 않았습니다. 리뷰 결과에 "확인하지 못한 파일"로 명시하세요.',
+        ...omitted.map((c) => `- ${c.new_path} [${changeStatus(c)}]`),
+        '',
+      ].join('\n')
+    : '';
+
+  const prevReviewSection = buildPrevReviewSection(prevReview);
   const discussionsSection = buildDiscussionsSection(item.discussions ?? []);
 
-  return `${header}${sections.join('\n')}${discussionsSection}`;
+  return `${header}${sections.join('\n')}${omittedSection}${prevReviewSection}${discussionsSection}`;
 }
 
 export interface RunHandle extends AIStreamHandle {}

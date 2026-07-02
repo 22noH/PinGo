@@ -84,7 +84,9 @@ export async function runReviewStart(
     sendToReview(win, ITEM_NEW, full);
 
     const aiProvider = createAIProvider(settings.ai);
-    const prompt = buildPrompt(full);
+    // 이전 AI 리뷰(로컬 캐시)를 프롬프트에 포함 — 재리뷰 시 지적 사항의 해결 여부를 확인하게 함
+    const prevReview = (ctx.store.get('reviewCache') ?? {})[item.id]?.markdown;
+    const prompt = buildPrompt(full, prevReview);
     current = runReview(
       aiProvider,
       prompt,

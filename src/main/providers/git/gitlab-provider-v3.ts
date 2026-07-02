@@ -13,6 +13,7 @@ import type {
   GitLabConfig,
   GitProjectSummary,
   PipelineInfo,
+  PipelineRunResult,
   ReviewItemAuthor,
   ReviewItemSummary,
 } from '../../../shared/types';
@@ -98,6 +99,35 @@ export async function fetchRecentPipelines(
     if (r.status === 'fulfilled') all.push(...r.value);
   }
   return all;
+}
+
+/** MR 파이프라인 새로 실행 — POST /merge_requests/:iid/pipelines */
+export async function runPipeline(
+  client: AxiosInstance,
+  item: ReviewItemSummary,
+): Promise<PipelineRunResult> {
+  try {
+    const res = await client.post<{ id: number; web_url?: string }>(
+      `/projects/${item.projectId}/merge_requests/${item.itemId}/pipelines`,
+    );
+    log.info(`gitlab: pipeline started item=#${item.itemId} pipeline=${res.data.id}`);
+    return { success: true, webUrl: res.data.web_url };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error(`gitlab: pipeline run failed item=#${item.itemId}: ${msg.slice(0, 200)}`);
+    return { success: false, error: msg };
+  }
+}
+
+/** 저장소 HTTP clone URL 조회 — AI 머지에서 임시 클론에 사용 */
+export async function fetchRepoCloneUrl(
+  client: AxiosInstance,
+  item: ReviewItemSummary,
+): Promise<string> {
+  const res = await client.get<{ http_url_to_repo: string }>(
+    `/projects/${item.projectId}`,
+  );
+  return res.data.http_url_to_repo;
 }
 
 export async function fetchApprovalStatus(

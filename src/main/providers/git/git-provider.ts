@@ -14,6 +14,7 @@ import type {
   GitIssue,
   GitProjectSummary,
   PipelineInfo,
+  PipelineRunResult,
   ReviewItemSummary,
   ReviewItemWithChanges,
 } from '../../../shared/types';
@@ -52,6 +53,10 @@ export interface GitProvider {
   listProjects?(signal?: AbortSignal): Promise<GitProjectSummary[]>;
   /** 기존 토론 스레드에 답글 */
   postReply?(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentReplyResult>;
+  /** MR/PR 파이프라인 새로 실행 */
+  runPipeline?(item: ReviewItemSummary): Promise<PipelineRunResult>;
+  /** 저장소 HTTP clone URL (AI 머지용 — 인증 없이 반환, 토큰 주입은 호출측) */
+  fetchRepoCloneUrl?(item: ReviewItemSummary): Promise<string>;
 }
 
 export function createGitProvider(config: GitConfig): GitProvider {

@@ -14,6 +14,7 @@ import { StreamController, type StreamView } from './review-stream';
 import { openDiffModal } from './review-diff-modal';
 import { initTabs, addOrActivate, getActive, updateActive, closeById, getTabCount } from './review-tabs';
 import type { ReviewTab } from './review-tabs';
+import { initReviewActions } from './review-actions';
 import { renderDiscussions } from './review-discussions';
 import { postCommentAction } from './review-comment';
 import { renderHeader, type HeaderRefs } from './review-header';
@@ -316,4 +317,5 @@ function bootstrap(): void {
   if (!initMarked()) setTimeout(bootstrap, 50);
 }
 stream.renderInitialEmpty();
+initReviewActions(() => getActive()?.item ?? null);
 bootstrap();

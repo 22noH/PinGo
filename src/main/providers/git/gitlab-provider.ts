@@ -17,6 +17,7 @@ import type {
   GitLabConfig,
   ItemChange,
   PipelineInfo,
+  PipelineRunResult,
   ReviewItemAuthor,
   ReviewItemSummary,
   ReviewItemWithChanges,
@@ -143,6 +144,8 @@ export class GitLabProvider implements GitProvider {
   async fetchChanges(item: ReviewItemSummary): Promise<ReviewItemWithChanges> {
     const res = await this.client.get<GitLabMRChangesResponse>(
       `/projects/${item.projectId}/merge_requests/${item.itemId}/changes`,
+      // access_raw_diffs: 대형 MR에서 UI처럼 diff가 접혀(빈 문자열) 오는 것을 우회 — Gitaly에서 직접 조회
+      { params: { access_raw_diffs: true } },
     );
     const base = this.normalize(res.data);
     return { ...base, changes: res.data.changes ?? [] };
@@ -240,6 +243,12 @@ export class GitLabProvider implements GitProvider {
   }
   postReply(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentPostResult> {
     return V3.postReply(this.client, item, payload);
+  }
+  runPipeline(item: ReviewItemSummary): Promise<PipelineRunResult> {
+    return V3.runPipeline(this.client, item);
+  }
+  fetchRepoCloneUrl(item: ReviewItemSummary): Promise<string> {
+    return V3.fetchRepoCloneUrl(this.client, item);
   }
 
   private normalize(raw: GitLabMRListItem): ReviewItemSummary {

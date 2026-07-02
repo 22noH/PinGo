@@ -39,6 +39,7 @@ import {
   REVIEW_START,
   WINDOW_OPEN_MR,
 } from '../shared/constants';
+import { registerActionHandlers, unregisterActionHandlers } from './ipc-actions';
 import { registerJiraHandlers, unregisterJiraHandlers } from './ipc-jira';
 import { registerBranchHandlers, unregisterBranchHandlers } from './ipc-branch';
 import { registerSettingsHandlers, unregisterSettingsHandlers } from './ipc-settings';
@@ -288,6 +289,9 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     },
   );
 
+  // ── MR 액션: 파이프라인 실행 / AI 머지 ─────────────────
+  registerActionHandlers({ store: deps.store, getReviewWindow: deps.getReviewWindow });
+
   // ── v3: Jira / Branch / Settings sub-handlers ─────────
   registerJiraHandlers({ store: deps.store, rebuildJira: deps.rebuildJira });
   registerBranchHandlers({ store: deps.store });
@@ -319,6 +323,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler(COMMENT_REPLY);
   ipcMain.removeHandler(PROJECT_FILTERS_LOAD);
   ipcMain.removeHandler(PROJECT_FILTERS_SAVE);
+  unregisterActionHandlers();
   unregisterJiraHandlers();
   unregisterBranchHandlers();
   unregisterSettingsHandlers();

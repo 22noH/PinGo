@@ -75,6 +75,16 @@ export const REVIEW_CACHE_SAVE = 'review:cache:save' as const;
 // ── v3 신규 IPC — 댓글 답글 ────────────────────────────────
 export const COMMENT_REPLY = 'comment:reply' as const;
 
+// ── MR 액션 — 파이프라인 실행 / AI 충돌 머지 ────────────────
+/** MR 파이프라인 새로 실행 (Renderer → Main, invoke) */
+export const PIPELINE_RUN = 'pipeline:run' as const;
+/** AI 충돌 해결 머지 시작 (Renderer → Main, invoke — 완료까지 대기) */
+export const MERGE_AI_START = 'merge:ai:start' as const;
+/** AI 머지 결과를 MR 브랜치에 push (Renderer → Main, invoke) */
+export const MERGE_AI_PUSH = 'merge:ai:push' as const;
+/** Main → Renderer: AI 머지 진행 상황 한 줄씩 */
+export const MERGE_AI_PROGRESS = 'merge:ai:progress' as const;
+
 // ── v3 신규 IPC — 프로젝트 필터 ────────────────────────────
 export const PROJECT_FILTERS_LOAD = 'project-filters:load' as const;
 export const PROJECT_FILTERS_SAVE = 'project-filters:save' as const;
@@ -96,7 +106,8 @@ export type MainToRendererChannel =
   | typeof ITEM_NEW
   | typeof TRAY_STATE_CHANGED
   | typeof JIRA_ISSUE_NEW
-  | typeof LIST_JIRA_UPDATED;
+  | typeof LIST_JIRA_UPDATED
+  | typeof MERGE_AI_PROGRESS;
 
 export type RendererToMainChannel =
   | typeof REVIEW_START
@@ -125,7 +136,10 @@ export type RendererToMainChannel =
   | typeof REVIEW_CACHE_LOAD
   | typeof REVIEW_CACHE_SAVE
   | typeof PROJECT_FILTERS_LOAD
-  | typeof PROJECT_FILTERS_SAVE;
+  | typeof PROJECT_FILTERS_SAVE
+  | typeof PIPELINE_RUN
+  | typeof MERGE_AI_START
+  | typeof MERGE_AI_PUSH;
 
 // ── 기본값 / 제한 상수 ──────────────────────────────────────
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;

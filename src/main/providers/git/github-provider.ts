@@ -191,11 +191,16 @@ export class GitHubProvider implements GitProvider {
     if (!repoPath) {
       throw new Error('GitHub item missing repoFullName');
     }
-    const res = await this.client.get<GitHubFileItem[]>(
-      `/repos/${repoPath}/pulls/${item.itemId}/files`,
-      { params: { per_page: 100 } },
-    );
-    const changes: ItemChange[] = res.data.map((f) => ({
+    const files: GitHubFileItem[] = [];
+    for (let page = 1; ; page++) {
+      const res = await this.client.get<GitHubFileItem[]>(
+        `/repos/${repoPath}/pulls/${item.itemId}/files`,
+        { params: { per_page: 100, page } },
+      );
+      files.push(...res.data);
+      if (res.data.length < 100) break;
+    }
+    const changes: ItemChange[] = files.map((f) => ({
       old_path: f.previous_filename ?? f.filename,
       new_path: f.filename,
       diff: f.patch ?? '',

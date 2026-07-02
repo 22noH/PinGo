@@ -35,6 +35,7 @@ export function openDiffModal(change: ItemChange): void {
       </div>
     </header>
     <div class="modal-body diff-modal-body">
+      ${change.diff ? `
       <table class="diff-table" cellspacing="0" cellpadding="0">
         <colgroup>
           <col class="dc-col-gutter">
@@ -42,7 +43,10 @@ export function openDiffModal(change: ItemChange): void {
           <col class="dc-col-code">
         </colgroup>
         <tbody id="diff-tbody"></tbody>
-      </table>
+      </table>` : `
+      <p class="text-muted" style="padding: var(--space-4);">
+        diff 없음 — 파일이 너무 커서 서버가 diff를 제공하지 않았거나 내용 변경이 없는 파일입니다.
+      </p>`}
     </div>
   `;
 

@@ -196,6 +196,38 @@ export interface StoreSchemaV3 {
   seenApprovalItemIds: string[];
 }
 
+// ── MR 액션 — 파이프라인 실행 / AI 충돌 머지 ────────────────
+export interface PipelineRunResult {
+  success: boolean;
+  webUrl?: string;
+  error?: string;
+}
+
+/** AI 머지에서 해결된 파일 하나 — diff 는 merge commit 이 source 브랜치에 더한 변경 */
+export interface MergeResolvedFile {
+  path: string;
+  diff: string;
+}
+
+export interface MergeAIStartResult {
+  success: boolean;
+  error?: string;
+  /** true = 충돌이 있어 AI 가 해결함, false = 충돌 없이 깨끗하게 머지됨 */
+  hadConflicts?: boolean;
+  /** target 이 이미 전부 반영되어 push 할 것이 없음 */
+  upToDate?: boolean;
+  resolvedFiles?: MergeResolvedFile[];
+}
+
+export interface MergeAIPushResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface MergeAIProgressPayload {
+  line: string;
+}
+
 // ── IPC 페이로드 ─────────────────────────────────────────────
 export interface ProjectFiltersSavePayload {
   projectFilters: ProjectFilter[];
