@@ -33,7 +33,7 @@ import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { createGitProvider, GitProvider } from './providers/git/git-provider';
 import { createAppWindow, WindowDirs } from './windows';
 import { silentPreSeed } from './preseed';
-import { initAutoUpdater } from './updater';
+import { initAutoUpdater, installUpdateNow } from './updater';
 // ── 중복 실행 방지 ──────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -408,6 +408,9 @@ function bootstrap(): void {
     // TEST: 트레이 메뉴에서 목업 리뷰 테스트 시 아래 주석 해제 + TrayHandlers에 콜백 복구
     // onOpenTestReview:  () => openReviewWindow(createMockTestItem()),
     // onOpenTestReview2: () => openReviewWindow(createMockTestItem2()),
+    onInstallUpdate: (): void => {
+      installUpdateNow();
+    },
     onQuit: (): void => {
       app.quit();
     },
@@ -551,7 +554,9 @@ app.whenReady().then(() => {
   }
   Menu.setApplicationMenu(null);
   bootstrap();
-  initAutoUpdater();
+  initAutoUpdater((version: string): void => {
+    tray?.setUpdateReady(version);
+  });
 });
 
 app.on('window-all-closed', () => {

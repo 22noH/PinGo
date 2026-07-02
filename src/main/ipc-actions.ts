@@ -15,7 +15,10 @@ import {
   MERGE_AI_PUSH,
   MERGE_AI_START,
   PIPELINE_RUN,
+  UPDATE_INSTALL,
+  UPDATE_STATUS_GET,
 } from '../shared/constants';
+import { getUpdateReadyVersion, installUpdateNow } from './updater';
 import { createAIProvider } from './providers/ai/ai-provider';
 import { createGitProvider } from './providers/git/git-provider';
 import { pushAiMerge, startAiMerge } from './merge-resolver';
@@ -98,10 +101,16 @@ export function registerActionHandlers(deps: ActionsDeps): void {
   });
 
   ipcMain.handle(MERGE_AI_PUSH, (): Promise<MergeAIPushResult> => pushAiMerge());
+
+  // ── 자동 업데이트 ─────────────────────────────────────
+  ipcMain.handle(UPDATE_STATUS_GET, (): string | null => getUpdateReadyVersion());
+  ipcMain.on(UPDATE_INSTALL, (): void => installUpdateNow());
 }
 
 export function unregisterActionHandlers(): void {
   ipcMain.removeHandler(PIPELINE_RUN);
   ipcMain.removeHandler(MERGE_AI_START);
   ipcMain.removeHandler(MERGE_AI_PUSH);
+  ipcMain.removeHandler(UPDATE_STATUS_GET);
+  ipcMain.removeAllListeners(UPDATE_INSTALL);
 }

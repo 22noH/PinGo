@@ -378,6 +378,27 @@ document.addEventListener('keydown', (e: KeyboardEvent): void => {
   btnRefresh.click();
 });
 
+// ── 자동 업데이트 — 다운로드 완료 시 버튼 노출, 클릭하면 재시작+적용 ──
+const btnUpdate = $<HTMLButtonElement>('btn-update');
+
+function showUpdateButton(version: string): void {
+  btnUpdate.textContent = `⬆ v${version} 업데이트 — 재시작하여 적용`;
+  btnUpdate.hidden = false;
+}
+
+btnUpdate.addEventListener('click', () => {
+  btnUpdate.disabled = true;
+  btnUpdate.textContent = '재시작 중…';
+  window.electronAPI.installUpdate();
+});
+
+window.electronAPI.onUpdateReady((version: string): void => showUpdateButton(version));
+
+// 창이 열리기 전에 이미 다운로드가 끝났을 수도 있음 — 초기 상태 조회
+void window.electronAPI.getUpdateStatus().then((version) => {
+  if (version) showUpdateButton(version);
+});
+
 btnRefresh.addEventListener('click', () => {
   btnRefresh.classList.add('is-spinning');
   btnRefresh.disabled = true;

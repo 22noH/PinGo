@@ -90,6 +90,9 @@ import {
   MERGE_AI_START,
   MERGE_AI_PUSH,
   MERGE_AI_PROGRESS,
+  UPDATE_STATUS_GET,
+  UPDATE_INSTALL,
+  UPDATE_READY,
 } from './shared/constants';
 
 export interface ElectronAPI {
@@ -181,6 +184,14 @@ export interface ElectronAPI {
   startAiMerge: (item: ReviewItemSummary) => Promise<MergeAIStartResult>;
   pushAiMerge: () => Promise<MergeAIPushResult>;
   onAiMergeProgress: (cb: (payload: MergeAIProgressPayload) => void) => () => void;
+
+  // ── 자동 업데이트 ────────────────────────────────────────
+  /** 다운로드 완료된 업데이트 버전 — 없으면 null */
+  getUpdateStatus: () => Promise<string | null>;
+  /** 재시작하여 업데이트 적용 */
+  installUpdate: () => void;
+  /** Main → Renderer: 업데이트 다운로드 완료 (버전 문자열) */
+  onUpdateReady: (cb: (version: string) => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -369,6 +380,18 @@ const api: ElectronAPI = {
     const handler = (_: IpcRendererEvent, payload: MergeAIProgressPayload): void => cb(payload);
     ipcRenderer.on(MERGE_AI_PROGRESS, handler);
     return (): void => { ipcRenderer.removeListener(MERGE_AI_PROGRESS, handler); };
+  },
+
+  // ── 자동 업데이트 ─────────────────────────────────────
+  getUpdateStatus: (): Promise<string | null> =>
+    ipcRenderer.invoke(UPDATE_STATUS_GET) as Promise<string | null>,
+  installUpdate: (): void => {
+    ipcRenderer.send(UPDATE_INSTALL);
+  },
+  onUpdateReady: (cb: (version: string) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, version: string): void => cb(version);
+    ipcRenderer.on(UPDATE_READY, handler);
+    return (): void => { ipcRenderer.removeListener(UPDATE_READY, handler); };
   },
 };
 

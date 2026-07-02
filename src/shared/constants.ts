@@ -85,6 +85,14 @@ export const MERGE_AI_PUSH = 'merge:ai:push' as const;
 /** Main → Renderer: AI 머지 진행 상황 한 줄씩 */
 export const MERGE_AI_PROGRESS = 'merge:ai:progress' as const;
 
+// ── 자동 업데이트 ───────────────────────────────────────────
+/** 다운로드 완료된 업데이트 버전 조회 (Renderer → Main, invoke) — 없으면 null */
+export const UPDATE_STATUS_GET = 'update:status:get' as const;
+/** 재시작하여 업데이트 적용 (Renderer → Main) */
+export const UPDATE_INSTALL = 'update:install' as const;
+/** Main → Renderer: 업데이트 다운로드 완료 브로드캐스트 (payload: 버전 문자열) */
+export const UPDATE_READY = 'update:ready' as const;
+
 // ── v3 신규 IPC — 프로젝트 필터 ────────────────────────────
 export const PROJECT_FILTERS_LOAD = 'project-filters:load' as const;
 export const PROJECT_FILTERS_SAVE = 'project-filters:save' as const;
@@ -107,7 +115,8 @@ export type MainToRendererChannel =
   | typeof TRAY_STATE_CHANGED
   | typeof JIRA_ISSUE_NEW
   | typeof LIST_JIRA_UPDATED
-  | typeof MERGE_AI_PROGRESS;
+  | typeof MERGE_AI_PROGRESS
+  | typeof UPDATE_READY;
 
 export type RendererToMainChannel =
   | typeof REVIEW_START
@@ -139,7 +148,9 @@ export type RendererToMainChannel =
   | typeof PROJECT_FILTERS_SAVE
   | typeof PIPELINE_RUN
   | typeof MERGE_AI_START
-  | typeof MERGE_AI_PUSH;
+  | typeof MERGE_AI_PUSH
+  | typeof UPDATE_STATUS_GET
+  | typeof UPDATE_INSTALL;
 
 // ── 기본값 / 제한 상수 ──────────────────────────────────────
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;

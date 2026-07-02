@@ -17,6 +17,8 @@ export interface TrayController {
   updateInteractions(interactions: Record<string, ItemInteraction>): void;
   updateLastChecked(at: Date): void;
   updateHealth(health: ConnectionHealth[]): void;
+  /** 다운로드 완료된 업데이트 버전 표시 (null 이면 항목 숨김) */
+  setUpdateReady(version: string | null): void;
   destroy(): void;
 }
 
@@ -26,6 +28,7 @@ interface TrayHandlers {
   onOpenList: () => void;
   onOpenItem: (item: ReviewItemSummary) => void;
   onReviewItem: (item: ReviewItemSummary) => void;
+  onInstallUpdate: () => void;
   onQuit: () => void;
 }
 
@@ -78,6 +81,7 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
   let interactions: Record<string, ItemInteraction> = {};
   let lastCheckedAt: Date | null = null;
   let health: ConnectionHealth[] = [];
+  let updateReadyVersion: string | null = null;
   let blinkTimer: NodeJS.Timeout | null = null;
   let blinkToggle = false;
 
@@ -180,6 +184,13 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
     items.push({ type: 'separator' });
     items.push({ label: '⚙️  설정', click: (): void => handlers.onOpenSettings() });
     items.push({ type: 'separator' });
+    if (updateReadyVersion) {
+      items.push({
+        label: `⬆️  v${updateReadyVersion} 업데이트 — 재시작하여 적용`,
+        click: (): void => handlers.onInstallUpdate(),
+      });
+      items.push({ type: 'separator' });
+    }
     items.push({ label: '종료', click: (): void => handlers.onQuit() });
 
     return Menu.buildFromTemplate(items);
@@ -222,6 +233,10 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
     },
     updateHealth: (next: ConnectionHealth[]): void => {
       health = next;
+      refreshMenu();
+    },
+    setUpdateReady: (version: string | null): void => {
+      updateReadyVersion = version;
       refreshMenu();
     },
     destroy: (): void => {
