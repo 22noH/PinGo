@@ -33,6 +33,7 @@ import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { createGitProvider, GitProvider } from './providers/git/git-provider';
 import { createAppWindow, WindowDirs } from './windows';
 import { silentPreSeed } from './preseed';
+import { initAutoUpdater } from './updater';
 // ── 중복 실행 방지 ──────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -550,6 +551,7 @@ app.whenReady().then(() => {
   }
   Menu.setApplicationMenu(null);
   bootstrap();
+  initAutoUpdater();
 });
 
 app.on('window-all-closed', () => {

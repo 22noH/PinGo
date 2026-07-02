@@ -25,7 +25,8 @@ jobs:
         run: npm version --no-git-tag-version "${{ github.ref_name }}"
 
       - name: Build installer
-        run: npm run dist
+        # 업로드는 아래 gh-release 단계가 담당 — electron-builder 자체 publish 는 끔
+        run: npm run dist -- --publish never
         env:
           # 코드 서명 인증서 없음 — 서명 시도 비활성화
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -33,4 +34,8 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.exe
+          # latest.yml + blockmap 은 electron-updater 자동 업데이트에 필요
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml

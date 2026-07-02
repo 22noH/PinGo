@@ -26,6 +26,7 @@
     "dotenv": "^16.4.5",
     "electron-log": "^5.2.0",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.9",
     "openai": "^6.34.0"
   },
   "devDependencies": {
@@ -39,6 +40,11 @@
   "build": {
     "appId": "com.pingo.app",
     "productName": "Pingo",
+    "publish": {
+      "provider": "github",
+      "owner": "22noH",
+      "repo": "PinGo"
+    },
     "directories": {
       "output": "release"
     },
@@ -49,8 +55,14 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "assets", "to": "assets" },
-      { "from": "dist/renderer", "to": "dist/renderer" }
+      {
+        "from": "assets",
+        "to": "assets"
+      },
+      {
+        "from": "dist/renderer",
+        "to": "dist/renderer"
+      }
     ],
     "win": {
       "target": "nsis",
