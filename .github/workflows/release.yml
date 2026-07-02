@@ -1,0 +1,36 @@
+# v* 태그 푸시 시에만 실행 — Windows 설치파일 빌드 후 GitHub Release 업로드
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # 태그(v0.3.0)를 package.json 버전에 반영 — 설치파일 버전이 항상 태그를 따라감
+      - name: Sync version from tag
+        run: npm version --no-git-tag-version "${{ github.ref_name }}"
+
+      - name: Build installer
+        run: npm run dist
+        env:
+          # 코드 서명 인증서 없음 — 서명 시도 비활성화
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.exe
