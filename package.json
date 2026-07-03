@@ -66,7 +66,8 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/app-icon.png"
+      "icon": "assets/app-icon.png",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
