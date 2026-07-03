@@ -20,9 +20,28 @@ jobs:
 
       - run: npm ci
 
-      # 태그(v0.3.0)를 package.json 버전에 반영 — 설치파일 버전이 항상 태그를 따라감
+      # 검증: 태그 버전이 package.json 버전보다 낮으면 실패 (실수로 과거 버전 태그 방지)
+      - name: Validate tag version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CUR=$(node -p "require('./package.json').version")
+          HIGHEST=$(printf '%s\n%s\n' "$CUR" "$TAG" | sort -V | tail -1)
+          if [ "$HIGHEST" != "$TAG" ]; then
+            echo "::error::태그 버전($TAG)이 package.json($CUR)보다 낮습니다"
+            exit 1
+          fi
+
+      # 태그를 package.json 버전에 반영 — 설치파일 버전이 항상 태그를 따라감
+      # (이미 같으면 skip — npm version 은 동일 버전이면 에러로 죽음)
       - name: Sync version from tag
-        run: npm version --no-git-tag-version "${{ github.ref_name }}"
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CUR=$(node -p "require('./package.json').version")
+          if [ "$CUR" != "$TAG" ]; then
+            npm version --no-git-tag-version "$TAG"
+          fi
 
       - name: Build installer
         # 업로드는 아래 gh-release 단계가 담당 — electron-builder 자체 publish 는 끔
@@ -39,3 +58,20 @@ jobs:
             release/*.exe
             release/*.blockmap
             release/latest.yml
+
+      # 릴리스 성공 후 master 의 package.json 버전을 태그에 맞춰 자동 커밋
+      # (태그만 만들고 버전 범프를 잊어도 리포가 어긋나지 않게)
+      - name: Bump version on master
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          git fetch origin master
+          git checkout -B master origin/master
+          CUR=$(node -p "require('./package.json').version")
+          if [ "$CUR" != "$TAG" ]; then
+            npm version --no-git-tag-version "$TAG"
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore: bump version to $TAG [skip ci]"
+            git push origin master
+          fi
