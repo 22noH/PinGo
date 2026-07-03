@@ -34,7 +34,7 @@ import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
 import { createGitProvider, GitProvider } from './providers/git/git-provider';
 import { createAppWindow, WindowDirs } from './windows';
 import { silentPreSeed } from './preseed';
-import { initAutoUpdater, installUpdateNow } from './updater';
+import { checkForUpdatesNow, initAutoUpdater, installUpdateNow } from './updater';
 // ── 중복 실행 방지 ──────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
@@ -418,6 +418,9 @@ function bootstrap(): void {
     // onOpenTestReview2: () => openReviewWindow(createMockTestItem2()),
     onInstallUpdate: (): void => {
       installUpdateNow();
+    },
+    onCheckUpdate: (): void => {
+      checkForUpdatesNow();
     },
     onQuit: (): void => {
       app.quit();

@@ -29,6 +29,7 @@ interface TrayHandlers {
   onOpenItem: (item: ReviewItemSummary) => void;
   onReviewItem: (item: ReviewItemSummary) => void;
   onInstallUpdate: () => void;
+  onCheckUpdate: () => void;
   onQuit: () => void;
 }
 
@@ -189,8 +190,13 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
         label: `⬆️  v${updateReadyVersion} 업데이트 — 재시작하여 적용`,
         click: (): void => handlers.onInstallUpdate(),
       });
-      items.push({ type: 'separator' });
+    } else {
+      items.push({
+        label: '⬆️  업데이트 확인',
+        click: (): void => handlers.onCheckUpdate(),
+      });
     }
+    items.push({ type: 'separator' });
     items.push({ label: '종료', click: (): void => handlers.onQuit() });
 
     return Menu.buildFromTemplate(items);
