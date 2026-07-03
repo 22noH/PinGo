@@ -211,6 +211,8 @@ export interface AppSettings {
   dashboardHotkey?: string;
   /** 새 MR/PR 감지 시 백그라운드 AI 리뷰 자동 실행 → 리뷰 캐시 저장 (기본: false) */
   autoReviewEnabled?: boolean;
+  /** AI 머지 시 저장소를 클론할 작업 폴더. 비우면 시스템 임시 폴더 사용 */
+  mergeWorkDir?: string;
 }
 
 // ── 폴러 이벤트 종류 (v2 3개 + v3 5개) ─────────────────────

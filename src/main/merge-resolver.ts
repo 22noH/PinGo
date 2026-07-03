@@ -120,6 +120,7 @@ export async function startAiMerge(
   token: string,
   ai: AIProvider,
   onProgress: (line: string) => void,
+  workBaseDir?: string,
 ): Promise<MergeAIStartResult> {
   if (busy) return { success: false, error: '이미 진행 중인 AI 머지가 있습니다' };
   if (!item.sourceBranch || !item.targetBranch) {
@@ -127,19 +128,23 @@ export async function startAiMerge(
   }
   busy = true;
   session = null;
-  const dir = path.join(app.getPath('temp'), 'pingo-merge', `${item.projectId}-${item.itemId}`);
+  const base = (workBaseDir ?? '').trim() || path.join(app.getPath('temp'), 'pingo-merge');
+  const dir = path.join(base, `${item.projectId}-${item.itemId}`);
 
   try {
     await fs.rm(dir, { recursive: true, force: true });
     await fs.mkdir(path.dirname(dir), { recursive: true });
 
     onProgress(`저장소 클론 중… (${item.sourceBranch})`);
+    // --filter=blob:none: 전체 히스토리 + blob 은 필요할 때만 — 얕은 클론(--depth)은
+    // 두 브랜치의 공통 조상이 범위 밖이면 머지 자체가 거부되는 문제가 있었음.
+    // 서버가 partial clone 미지원이면 git 이 경고 후 전체 클론으로 fallback.
     await runGit(
-      ['clone', '--depth', '50', '--branch', item.sourceBranch, cloneUrlWithAuth, dir],
+      ['clone', '--filter=blob:none', '--branch', item.sourceBranch, cloneUrlWithAuth, dir],
       undefined, token,
     );
     onProgress(`target 브랜치 가져오는 중… (${item.targetBranch})`);
-    await runGit(['fetch', '--depth', '50', 'origin', item.targetBranch], dir, token);
+    await runGit(['fetch', 'origin', item.targetBranch], dir, token);
 
     onProgress('머지 시도 중…');
     let conflicted: string[] = [];
@@ -148,12 +153,13 @@ export async function startAiMerge(
         [...GIT_IDENTITY, 'merge', '--no-edit', `origin/${item.targetBranch}`],
         dir, token,
       );
-    } catch {
+    } catch (mergeErr) {
       conflicted = (await runGit(['diff', '--name-only', '--diff-filter=U'], dir, token))
         .split('\n').map((s) => s.trim()).filter(Boolean);
       if (conflicted.length === 0) {
         await runGit(['merge', '--abort'], dir, token).catch(() => undefined);
-        throw new Error('머지가 실패했지만 충돌 파일을 찾지 못했습니다');
+        const m = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+        throw new Error(`머지 실패 (충돌 아님): ${m.slice(0, 300)}`);
       }
       if (conflicted.length > MAX_CONFLICT_FILES) {
         await runGit(['merge', '--abort'], dir, token).catch(() => undefined);

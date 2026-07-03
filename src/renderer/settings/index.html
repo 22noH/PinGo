@@ -221,6 +221,13 @@
       </div>
 
       <div class="field">
+        <label class="field-label" for="merge-work-dir">AI 머지 작업 폴더</label>
+        <input id="merge-work-dir" type="text" class="input" autocomplete="off" spellcheck="false"
+               placeholder="비우면 시스템 임시 폴더 (%TEMP%\pingo-merge)">
+        <span class="field-hint">AI 충돌 해결 머지 시 저장소를 클론할 위치. MR마다 하위 폴더에 클론되고 push 후 자동 정리됩니다.</span>
+      </div>
+
+      <div class="field">
         <label class="field-label" for="dashboard-hotkey">대시보드 단축키</label>
         <input id="dashboard-hotkey" type="text" class="input" autocomplete="off" spellcheck="false"
                placeholder="CommandOrControl+Shift+D">

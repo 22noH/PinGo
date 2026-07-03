@@ -77,7 +77,7 @@ async function handleMergeAiStart(
       const payload: MergeAIProgressPayload = { line };
       win.webContents.send(MERGE_AI_PROGRESS, payload);
     };
-    return await startAiMerge(item, u.toString(), cfg.token, ai, onProgress);
+    return await startAiMerge(item, u.toString(), cfg.token, ai, onProgress, settings.mergeWorkDir);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(`ipc-actions: merge start failed: ${msg.slice(0, 200)}`);

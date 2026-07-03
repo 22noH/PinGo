@@ -31,6 +31,7 @@ const commentNotifInput = $<HTMLInputElement>('comment-notifications-enabled');
 const autoReviewInput = $<HTMLInputElement>('auto-review-enabled');
 const startupInput    = $<HTMLInputElement>('launch-on-startup');
 const hotkeyInput     = $<HTMLInputElement>('dashboard-hotkey');
+const mergeDirInput   = $<HTMLInputElement>('merge-work-dir');
 
 const saveBtn      = $<HTMLButtonElement>('btn-save');
 const cancelBtn    = $<HTMLButtonElement>('btn-cancel');
@@ -107,6 +108,7 @@ async function save(): Promise<void> {
       autoReviewEnabled: autoReviewInput.checked,
       launchOnStartup: startupInput.checked,
       dashboardHotkey: hotkeyInput.value.trim() || undefined,
+      mergeWorkDir: mergeDirInput.value.trim() || undefined,
       jiraConnections: jira.connections,
       jiraWebhookEnabled: jira.webhookEnabled,
       jiraWebhookPort: jira.webhookPort,
@@ -186,6 +188,7 @@ async function bootstrap(): Promise<void> {
     autoReviewInput.checked = settings.autoReviewEnabled ?? false;
     startupInput.checked = settings.launchOnStartup ?? false;
     hotkeyInput.value    = settings.dashboardHotkey ?? 'CommandOrControl+Shift+D';
+    mergeDirInput.value  = settings.mergeWorkDir ?? '';
 
     await initGitTab(settings.gitConnections);
     initAITab(settings.ai);
