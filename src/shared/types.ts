@@ -48,12 +48,12 @@ export interface ClaudeCLIConfig {
 }
 
 /** Codex CLI `-c model_reasoning_effort=<...>` 허용값 */
-export type CodexCLIEffort = 'minimal' | 'low' | 'medium' | 'high';
+export type CodexCLIEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface CodexCLIConfig {
   type: 'codex-cli';
   execPath?: string;
-  /** `-m/--model` (예: 'o3', 'gpt-5-codex'). 빈값 → CLI/config 기본 */
+  /** `-m/--model` (예: 'gpt-5.5', 'gpt-5.1-codex-max'). 빈값 → CLI/config 기본 */
   model?: string;
   /** `-c model_reasoning_effort=<level>`. 빈값 → CLI/config 기본 */
   reasoningEffort?: CodexCLIEffort;

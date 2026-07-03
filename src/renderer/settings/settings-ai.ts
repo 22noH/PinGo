@@ -221,7 +221,7 @@ function readFormIntoCurrent(): void {
     const execPath = val('ai-exec-path') || undefined;
     const model = val('ai-cli-model') || undefined;
     const effortRaw = val('ai-cli-effort');
-    const validEfforts: ReadonlyArray<CodexCLIEffort> = ['minimal', 'low', 'medium', 'high'];
+    const validEfforts: ReadonlyArray<CodexCLIEffort> = ['minimal', 'low', 'medium', 'high', 'xhigh'];
     const reasoningEffort = (validEfforts as readonly string[]).includes(effortRaw)
       ? (effortRaw as CodexCLIEffort)
       : undefined;

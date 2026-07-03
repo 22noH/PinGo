@@ -203,30 +203,36 @@ export const CLAUDE_INSTALL_URL = 'https://claude.ai/code' as const;
 export const CODEX_INSTALL_URL = 'https://github.com/openai/codex' as const;
 
 // ── Anthropic 모델 기본 목록 (설정 UI 드롭다운) ──────────────
+// 최신 목록: https://platform.claude.com/docs/en/about-claude/models/overview
 export const ANTHROPIC_MODELS: readonly string[] = [
-  'claude-opus-4-6',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-sonnet-5',
   'claude-sonnet-4-6',
   'claude-haiku-4-5',
 ] as const;
 
-export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6' as const;
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-5' as const;
 
 // ── Claude CLI 모델 별칭 (설정 UI 드롭다운) ──────────────────
-// CLI는 별칭(sonnet/opus/haiku) 또는 전체 model id 허용. 빈 값이면 CLI 기본 사용.
+// CLI는 별칭(sonnet/opus/haiku/fable) 또는 전체 model id 허용. 빈 값이면 CLI 기본 사용.
 export const CLAUDE_CLI_MODELS: readonly string[] = [
   '',        // 기본(미지정)
   'haiku',   // 가장 저렴 — 토큰 절약
   'sonnet',  // 균형
   'opus',    // 고성능(고비용)
+  'fable',   // 최고 성능 (Claude 5, 최고비용)
 ] as const;
 
 // ── Codex CLI (OpenAI) 모델/reasoning effort ────────────────
 // Codex는 -m <model> + -c model_reasoning_effort=<level> 사용
+// 최신 목록: https://developers.openai.com/codex/models
 export const CODEX_CLI_MODELS: readonly string[] = [
   '',          // 기본(config.toml)
-  'gpt-5-codex',
-  'o3',
-  'o4-mini',
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.1-codex-max',
 ] as const;
 
 export const CODEX_CLI_EFFORTS: readonly string[] = [
@@ -235,6 +241,7 @@ export const CODEX_CLI_EFFORTS: readonly string[] = [
   'low',
   'medium',
   'high',
+  'xhigh',     // 5.1-codex-max 이상
 ] as const;
 
 // ── Claude CLI --effort 레벨 (토큰 예산 제어) ────────────────
@@ -244,19 +251,19 @@ export const CLAUDE_CLI_EFFORTS: readonly string[] = [
   'low',     // 1 — 가장 절약
   'medium',  // 2
   'high',    // 3 — API 기본
-  'xhigh',   // 4 — Opus 4.7 전용 권장
+  'xhigh',   // 4 — 코딩/에이전틱 권장 (Claude Code 기본)
   'max',     // 5 — 무제한
 ] as const;
 
-// ── OpenAI 모델 기본 목록 (힌트, 사용자 자유 입력 가능) ──────
+// ── OpenAI 모델 기본 목록 (설정 UI 드롭다운) ─────────────────
 export const OPENAI_MODELS: readonly string[] = [
-  'gpt-4o',
-  'gpt-4o-mini',
-  'o1',
-  'o1-mini',
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.1',
 ] as const;
 
-export const DEFAULT_OPENAI_MODEL = 'gpt-4o' as const;
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.5' as const;
 export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1' as const;
 export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434' as const;
 
