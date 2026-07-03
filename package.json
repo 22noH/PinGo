@@ -1,6 +1,6 @@
 {
   "name": "pingo",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "GitLab MR tray notifier with Claude AI review",
   "main": "dist/main/main.js",
   "scripts": {
