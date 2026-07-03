@@ -201,6 +201,7 @@ export const JIRA_API_PATH_SERVER_FALLBACK = '/rest/api/2' as const;
 // ── 외부 리소스 URL ─────────────────────────────────────────
 export const CLAUDE_INSTALL_URL = 'https://claude.ai/code' as const;
 export const CODEX_INSTALL_URL = 'https://github.com/openai/codex' as const;
+export const RELEASES_URL = 'https://github.com/22noH/PinGo/releases' as const;
 
 // ── Anthropic 모델 기본 목록 (설정 UI 드롭다운) ──────────────
 // 최신 목록: https://platform.claude.com/docs/en/about-claude/models/overview

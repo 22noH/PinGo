@@ -16,6 +16,7 @@ import type {
 import {
   DEFAULT_DASHBOARD_HOTKEY,
   ITEM_NEW,
+  RELEASES_URL,
   LIST_UPDATED,
   MAX_RECENT_ITEMS,
   MAX_SEEN_ITEM_IDS,
@@ -421,6 +422,10 @@ function bootstrap(): void {
     },
     onCheckUpdate: (): void => {
       checkForUpdatesNow();
+    },
+    onOpenReleaseNotes: (version: string | null): void => {
+      // 대기 중 버전이 있으면 해당 태그로, 없으면 릴리스 목록으로
+      void shell.openExternal(version ? `${RELEASES_URL}/tag/v${version}` : RELEASES_URL);
     },
     onQuit: (): void => {
       app.quit();

@@ -53,6 +53,8 @@ jobs:
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # 커밋 기반 릴리스 노트 자동 생성 — 트레이 "변경사항 보기"에서 열람
+          generate_release_notes: true
           # latest.yml + blockmap 은 electron-updater 자동 업데이트에 필요
           files: |
             release/*.exe
