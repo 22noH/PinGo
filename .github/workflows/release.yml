@@ -66,7 +66,8 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           git fetch origin master
-          git checkout -B master origin/master
+          # -f: Sync 스텝이 작업 트리에 남긴 package.json 수정을 버리고 master 원본을 읽음
+          git checkout -f -B master origin/master
           CUR=$(node -p "require('./package.json').version")
           if [ "$CUR" != "$TAG" ]; then
             npm version --no-git-tag-version "$TAG"
