@@ -12,6 +12,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 릴리스 노트용 커밋 로그 + 이전 태그 조회에 전체 히스토리 필요
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -50,10 +53,23 @@ jobs:
           # 코드 서명 인증서 없음 — 서명 시도 비활성화
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
+      # PR 없이 직접 푸시하는 워크플로라 GitHub 자동 노트에는 커밋이 안 실림 →
+      # 이전 태그 이후 커밋 목록을 직접 본문으로 생성 (버전 범프 커밋은 제외)
+      - name: Generate release notes
+        shell: bash
+        run: |
+          PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          {
+            echo "## 변경사항"
+            git log --format='- %s' ${PREV:+$PREV..}"$GITHUB_REF_NAME" | grep -v 'bump version' || true
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # 커밋 기반 릴리스 노트 자동 생성 — 트레이 "변경사항 보기"에서 열람
+          body_path: release-notes.md
+          # Full Changelog 비교 링크 자동 첨부 — 트레이 "변경사항 보기"에서 열람
           generate_release_notes: true
           # latest.yml + blockmap 은 electron-updater 자동 업데이트에 필요
           files: |
