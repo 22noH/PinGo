@@ -209,6 +209,8 @@ export interface AppSettings {
    * 빈 문자열/undefined 면 미등록.
    */
   dashboardHotkey?: string;
+  /** 새 MR/PR 감지 시 백그라운드 AI 리뷰 자동 실행 → 리뷰 캐시 저장 (기본: false) */
+  autoReviewEnabled?: boolean;
 }
 
 // ── 폴러 이벤트 종류 (v2 3개 + v3 5개) ─────────────────────

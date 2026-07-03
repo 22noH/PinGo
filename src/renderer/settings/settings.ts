@@ -28,6 +28,7 @@ const pollInput       = $<HTMLInputElement>('poll-interval');
 const pollValue       = $<HTMLSpanElement>('poll-value');
 const notifInput      = $<HTMLInputElement>('notification-enabled');
 const commentNotifInput = $<HTMLInputElement>('comment-notifications-enabled');
+const autoReviewInput = $<HTMLInputElement>('auto-review-enabled');
 const startupInput    = $<HTMLInputElement>('launch-on-startup');
 const hotkeyInput     = $<HTMLInputElement>('dashboard-hotkey');
 
@@ -103,6 +104,7 @@ async function save(): Promise<void> {
       pollIntervalMs: Number(pollInput.value) * 1000,
       notificationEnabled: notifInput.checked,
       commentNotificationsEnabled: commentNotifInput.checked,
+      autoReviewEnabled: autoReviewInput.checked,
       launchOnStartup: startupInput.checked,
       dashboardHotkey: hotkeyInput.value.trim() || undefined,
       jiraConnections: jira.connections,
@@ -181,6 +183,7 @@ async function bootstrap(): Promise<void> {
     renderPollValue(sec);
     notifInput.checked   = settings.notificationEnabled;
     commentNotifInput.checked = settings.commentNotificationsEnabled ?? true;
+    autoReviewInput.checked = settings.autoReviewEnabled ?? false;
     startupInput.checked = settings.launchOnStartup ?? false;
     hotkeyInput.value    = settings.dashboardHotkey ?? 'CommandOrControl+Shift+D';
 

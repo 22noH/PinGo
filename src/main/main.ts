@@ -27,6 +27,7 @@ import { createPoller, PollerController, PollerSeenState } from './poller';
 import { detectV3ItemEvents } from './poller-events';
 import { createJiraBridge, JiraBridgeController } from './main-jira-bridge';
 import { sendMrNotification } from './notifier';
+import { maybeAutoReview } from './auto-review';
 import type { JiraEvent, JiraIssueSummary } from '../shared/types';
 import { JIRA_ISSUE_NEW, LIST_JIRA_UPDATED } from '../shared/constants';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
@@ -133,7 +134,7 @@ function openDetachedWindow(item: ReviewItemSummary | ReviewItemWithChanges, spa
 
 function openSettingsWindow(): void {
   if (!settingsWindow || settingsWindow.isDestroyed()) {
-    settingsWindow = createAppWindow(WIN_DIRS, 'settings/index.html', 'Pingo — Settings', 640, 640, true, false);
+    settingsWindow = createAppWindow(WIN_DIRS, 'settings/index.html', 'Pingo — Settings', 640, 820, true, false);
     settingsWindow.on('closed', () => { settingsWindow = null; });
   } else {
     settingsWindow.show();
@@ -299,6 +300,13 @@ function handleEvents(
   }
 
   persistSeenState(store, seen);
+
+  // 자동 AI 리뷰 — 알림 mute 여부와 무관하게 실행 (설정에서 별도 토글)
+  for (const ev of events) {
+    if (ev.kind === 'new_item' || ev.kind === 'reviewer_assigned') {
+      maybeAutoReview(store, ev.item);
+    }
+  }
 
   const settings = store.get('settings');
   if (!settings.notificationEnabled) {

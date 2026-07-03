@@ -61,7 +61,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-height: 0;
+  /* 창이 낮아도 탭 콘텐츠(연결 목록 등)가 0px로 짜부라지지 않게 최소 높이 보장 */
+  min-height: 240px;
 }
 
 .settings-common {
@@ -70,6 +71,9 @@ body {
   gap: var(--space-4);
   padding-top: var(--space-4);
   border-top: 1px solid var(--border-subtle);
+  /* 공간 부족 시 공통 섹션이 대신 줄어들고 내부 스크롤 */
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-footer {
