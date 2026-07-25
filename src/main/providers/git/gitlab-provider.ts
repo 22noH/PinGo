@@ -53,6 +53,8 @@ interface GitLabDiscussionNote {
   author: GitLabUserBrief;
   created_at: string;
   system: boolean;
+  resolvable?: boolean;
+  resolved?: boolean;
 }
 
 interface GitLabDiscussion {
@@ -160,18 +162,25 @@ export class GitLabProvider implements GitProvider {
       { params: { per_page: 100 }, signal },
     );
     const username = await this.getCurrentUsername();
-    return res.data.map((d) => ({
-      id: d.id,
-      notes: d.notes
-        .filter((n) => !n.system)
-        .map((n): DiscussionNote => ({
-          id: String(n.id),
-          author: n.author,
-          body: n.body,
-          createdAt: n.created_at,
-          mentionsCurrentUser: username ? bodyMentions(n.body, username) : false,
-        })),
-    }));
+    return res.data.map((d) => {
+      // resolvable 노트가 하나라도 있으면 스레드는 resolvable — 전부 resolved 여야 스레드 resolved.
+      const resolvable = d.notes.filter((n) => n.resolvable);
+      const resolved =
+        resolvable.length > 0 ? resolvable.every((n) => n.resolved === true) : undefined;
+      return {
+        id: d.id,
+        resolved,
+        notes: d.notes
+          .filter((n) => !n.system)
+          .map((n): DiscussionNote => ({
+            id: String(n.id),
+            author: n.author,
+            body: n.body,
+            createdAt: n.created_at,
+            mentionsCurrentUser: username ? bodyMentions(n.body, username) : false,
+          })),
+      };
+    });
   }
 
   private async getCurrentUsername(): Promise<string | null> {

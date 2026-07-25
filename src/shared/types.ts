@@ -149,6 +149,11 @@ export interface DiscussionNote {
 export interface Discussion {
   id: string;
   notes: DiscussionNote[];
+  /**
+   * 스레드 해결(resolved) 여부. resolvable 하지 않은(일반 코멘트) 스레드는 undefined.
+   * 자동 리뷰(B안)는 resolved === true 인 스레드에는 중복/재리뷰 댓글을 달지 않는다.
+   */
+  resolved?: boolean;
 }
 
 /** 리뷰/상세용 — changes 필수, discussions는 선택적 */
@@ -213,6 +218,11 @@ export interface AppSettings {
   autoReviewEnabled?: boolean;
   /** AI 머지 시 저장소를 클론할 작업 폴더. 비우면 시스템 임시 폴더 사용 */
   mergeWorkDir?: string;
+  /**
+   * 자동 리뷰 동시 실행 최대 개수 (기본 5). 초과 요청은 대기열로.
+   * 설정 UI 티켓이 이 값을 연결한다. undefined 면 DEFAULT_AUTO_REVIEW_CONCURRENCY.
+   */
+  autoReviewConcurrency?: number;
 }
 
 // ── 폴러 이벤트 종류 (v2 3개 + v3 5개) ─────────────────────

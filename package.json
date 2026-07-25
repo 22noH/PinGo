@@ -5,11 +5,13 @@
   "main": "dist/main/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/bundle-renderer.js && node scripts/copy-renderer.js",
+    "test": "tsc -p tsconfig.json && node --test dist/main/auto-review/",
     "build:watch": "tsc -p tsconfig.json --watch",
     "start": "npm run build && npm run generate-icons && electron .",
     "dev": "npm run build && npm run generate-icons && electron . --dev",
     "generate-icons": "node scripts/generate-icons.js",
-    "dist": "npm run build && electron-builder --win nsis"
+    "dist": "npm run build && electron-builder --win nsis",
+    "test": "tsc -p tsconfig.json && node --test dist/test"
   },
   "keywords": [
     "electron",

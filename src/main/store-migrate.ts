@@ -10,6 +10,7 @@ import type {
   V1AppSettings,
 } from '../shared/types';
 import {
+  DEFAULT_AUTO_REVIEW_CONCURRENCY,
   DEFAULT_JIRA_WEBHOOK_PORT,
   DEFAULT_POLL_INTERVAL_MS,
 } from '../shared/constants';
@@ -23,6 +24,7 @@ export const DEFAULT_V2_SETTINGS: AppSettings = {
   notificationEnabled: true,
   commentNotificationsEnabled: true,
   launchOnStartup: false,
+  autoReviewConcurrency: DEFAULT_AUTO_REVIEW_CONCURRENCY,
 };
 
 /**

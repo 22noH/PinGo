@@ -158,6 +158,8 @@ export const DEFAULT_POLL_INTERVAL_MS = 30_000;
 /** 대시보드 창 여는 전역 단축키 기본값 */
 export const DEFAULT_DASHBOARD_HOTKEY = 'CommandOrControl+Shift+D';
 export const MIN_POLL_INTERVAL_MS = 10_000;
+/** 자동 리뷰 동시 실행 기본 상한 (AppSettings.autoReviewConcurrency 미설정 시). */
+export const DEFAULT_AUTO_REVIEW_CONCURRENCY = 5;
 export const MAX_SEEN_ITEM_IDS = 200;
 export const MAX_RECENT_ITEMS = 20;
 /**

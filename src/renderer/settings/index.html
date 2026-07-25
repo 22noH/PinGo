@@ -62,6 +62,12 @@
         </svg>
         프로젝트 필터
       </button>
+      <button id="tab-autoreview" type="button" role="tab" aria-controls="panel-autoreview" aria-selected="false" class="tab-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
+        </svg>
+        자동 리뷰
+      </button>
     </nav>
 
     <!-- ── 탭 패널 ──────────────────────────────────────── -->
@@ -146,6 +152,19 @@
       <div id="panel-filters" role="tabpanel" aria-labelledby="tab-filters" class="tab-panel" hidden>
         <div id="filters-host" class="col" style="gap: var(--space-4);">
           <div class="connection-empty">프로젝트 필터 UI 는 프로젝트 목록 로드 후 자동 렌더됩니다.</div>
+        </div>
+      </div>
+
+      <!-- [자동 리뷰] -->
+      <div id="panel-autoreview" role="tabpanel" aria-labelledby="tab-autoreview" class="tab-panel" hidden>
+        <div class="field">
+          <label class="field-label" for="autoreview-concurrency">
+            동시 리뷰 상한 <span class="text-accent text-mono" id="autoreview-concurrency-value">5</span>
+          </label>
+          <input id="autoreview-concurrency" class="slider" type="range" min="1" max="10" step="1" value="5">
+          <span class="field-hint">
+            동시에 실행할 자동 리뷰 최대 개수입니다. 초과분은 대기열로 들어가 슬롯이 비는 대로 순서대로 처리됩니다.
+          </span>
         </div>
       </div>
 

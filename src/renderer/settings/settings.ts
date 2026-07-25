@@ -3,6 +3,7 @@
 // Git 탭은 settings-git.ts, AI 탭은 settings-ai.ts 에 위임
 // strict mode — no `any`, no console.log
 import type { AppSettings } from '../../shared/types';
+import { DEFAULT_AUTO_REVIEW_CONCURRENCY } from '../../shared/constants';
 import { initGitTab, flushGitPendingChanges, hasUnsavedGitChanges } from './settings-git';
 import { initAITab, flushAIPendingChanges, hasUnsavedAIChanges } from './settings-ai';
 import { initJiraTab, flushJiraPendingChanges, hasUnsavedJiraChanges } from './settings-jira';
@@ -19,10 +20,15 @@ const tabGit       = $<HTMLButtonElement>('tab-git');
 const tabAi        = $<HTMLButtonElement>('tab-ai');
 const tabJira      = $<HTMLButtonElement>('tab-jira');
 const tabFilters   = $<HTMLButtonElement>('tab-filters');
+const tabAutoreview = $<HTMLButtonElement>('tab-autoreview');
 const panelGit     = $<HTMLElement>('panel-git');
 const panelAi      = $<HTMLElement>('panel-ai');
 const panelJira    = $<HTMLElement>('panel-jira');
 const panelFilters = $<HTMLElement>('panel-filters');
+const panelAutoreview = $<HTMLElement>('panel-autoreview');
+
+const autoreviewInput = $<HTMLInputElement>('autoreview-concurrency');
+const autoreviewValue = $<HTMLSpanElement>('autoreview-concurrency-value');
 
 const pollInput       = $<HTMLInputElement>('poll-interval');
 const pollValue       = $<HTMLSpanElement>('poll-value');
@@ -37,13 +43,14 @@ const saveBtn      = $<HTMLButtonElement>('btn-save');
 const cancelBtn    = $<HTMLButtonElement>('btn-cancel');
 
 // ── 탭 전환 ──────────────────────────────────────────────────
-type TabName = 'git' | 'ai' | 'jira' | 'filters';
+type TabName = 'git' | 'ai' | 'jira' | 'filters' | 'autoreview';
 
 const tabMap: Record<TabName, { btn: HTMLButtonElement; panel: HTMLElement }> = {
-  git:     { btn: tabGit,     panel: panelGit     },
-  ai:      { btn: tabAi,      panel: panelAi      },
-  jira:    { btn: tabJira,    panel: panelJira    },
-  filters: { btn: tabFilters, panel: panelFilters },
+  git:        { btn: tabGit,        panel: panelGit        },
+  ai:         { btn: tabAi,         panel: panelAi         },
+  jira:       { btn: tabJira,       panel: panelJira       },
+  filters:    { btn: tabFilters,    panel: panelFilters    },
+  autoreview: { btn: tabAutoreview, panel: panelAutoreview },
 };
 
 function switchTab(name: TabName): void {
@@ -61,6 +68,11 @@ tabGit.addEventListener('click',     (): void => switchTab('git'));
 tabAi.addEventListener('click',      (): void => switchTab('ai'));
 tabJira.addEventListener('click',    (): void => switchTab('jira'));
 tabFilters.addEventListener('click', (): void => switchTab('filters'));
+tabAutoreview.addEventListener('click', (): void => switchTab('autoreview'));
+
+autoreviewInput.addEventListener('input', (): void => {
+  autoreviewValue.textContent = autoreviewInput.value;
+});
 
 // ── 폴링 슬라이더 ────────────────────────────────────────────
 function renderPollValue(sec: number): void {
@@ -113,6 +125,7 @@ async function save(): Promise<void> {
       jiraWebhookEnabled: jira.webhookEnabled,
       jiraWebhookPort: jira.webhookPort,
       projectFilters,
+      autoReviewConcurrency: Number(autoreviewInput.value),
     };
     await window.electronAPI.saveSettings({ settings: merged });
     window.close();
@@ -167,9 +180,9 @@ document.addEventListener('keydown', (e: KeyboardEvent): void => {
     void save();
   }
   // 탭 전환 단축키 (Ctrl/Cmd + 1~4)
-  if ((e.ctrlKey || e.metaKey) && ['1','2','3','4'].includes(e.key)) {
+  if ((e.ctrlKey || e.metaKey) && ['1','2','3','4','5'].includes(e.key)) {
     e.preventDefault();
-    const order: TabName[] = ['git', 'ai', 'jira', 'filters'];
+    const order: TabName[] = ['git', 'ai', 'jira', 'filters', 'autoreview'];
     const idx = Number(e.key) - 1;
     const target = order[idx];
     if (target) switchTab(target);
@@ -189,6 +202,9 @@ async function bootstrap(): Promise<void> {
     startupInput.checked = settings.launchOnStartup ?? false;
     hotkeyInput.value    = settings.dashboardHotkey ?? 'CommandOrControl+Shift+D';
     mergeDirInput.value  = settings.mergeWorkDir ?? '';
+    const concurrency = settings.autoReviewConcurrency ?? DEFAULT_AUTO_REVIEW_CONCURRENCY;
+    autoreviewInput.value = String(concurrency);
+    autoreviewValue.textContent = String(concurrency);
 
     await initGitTab(settings.gitConnections);
     initAITab(settings.ai);
