@@ -116,10 +116,12 @@ ERROR    → GitLab 연결 실패    아이콘: icon-error.png    (검정)
 - 팀 config: ~/.claude/teams/pingo/config.json (팀원 목록)
 
 ## 릴리스 방법
-- **수동으로 버전 범프 커밋 만들고 태그 걸지 말 것.** `[skip ci]` 커밋에 태그를 걸면
-  GitHub 이 Release 워크플로까지 스킵해서 설치파일이 안 나온다 (v0.4.4 사고).
-- 대신: `npm run release 0.4.5` → 태그만 안전하게 푸시 → `release.yml` 이
-  빌드 + master 버전 범프까지 처리한다.
+- **태그만 걸면 끝.** master 최신에서:
+  `git tag v0.4.5 && git push origin master --tags`
+- `release.yml`(태그 `v*`)이 빌드 + Release 발행 + master 버전 범프까지 처리한다.
+  범프 커밋에는 `[skip ci]`를 **안 붙인다** — 붙이면 다음 태그가 그 커밋을 가리킬 때
+  태그 push까지 스킵돼 릴리스가 안 나온다 (v0.4.4 사고).
+- 수동으로 `[skip ci]` 범프 커밋 만들고 그 위에 태그 걸지 말 것.
 
 ## 금지사항
 - any 타입 사용 금지

@@ -91,6 +91,9 @@ jobs:
             npm version --no-git-tag-version "$TAG"
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git commit -am "chore: bump version to $TAG [skip ci]"
+            # [skip ci] 안 붙임 — 붙이면 다음 태그가 이 커밋을 가리킬 때
+            # 태그 push 이벤트까지 스킵돼 릴리스가 안 돈다 (v0.4.4 사고).
+            # typecheck 한 번 더 도는 비용 < "태그만 걸면 릴리스" 편의.
+            git commit -am "chore: bump version to $TAG"
             git push origin master
           fi
