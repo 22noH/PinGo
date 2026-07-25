@@ -115,6 +115,12 @@ ERROR    → GitLab 연결 실패    아이콘: icon-error.png    (검정)
 - 불확실하면 추측 말고 Orchestrator에 질문
 - 팀 config: ~/.claude/teams/pingo/config.json (팀원 목록)
 
+## 릴리스 방법
+- **수동으로 버전 범프 커밋 만들고 태그 걸지 말 것.** `[skip ci]` 커밋에 태그를 걸면
+  GitHub 이 Release 워크플로까지 스킵해서 설치파일이 안 나온다 (v0.4.4 사고).
+- 대신: `npm run release 0.4.5` → 태그만 안전하게 푸시 → `release.yml` 이
+  빌드 + master 버전 범프까지 처리한다.
+
 ## 금지사항
 - any 타입 사용 금지
 - console.log 금지 (electron-log 사용)

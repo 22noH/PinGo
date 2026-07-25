@@ -11,6 +11,7 @@
     "dev": "npm run build && npm run generate-icons && electron . --dev",
     "generate-icons": "node scripts/generate-icons.js",
     "dist": "npm run build && electron-builder --win nsis",
+    "release": "node scripts/release.js",
     "test": "tsc -p tsconfig.json && node --test dist/test"
   },
   "keywords": [
