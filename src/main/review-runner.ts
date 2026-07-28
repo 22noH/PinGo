@@ -7,16 +7,20 @@ import type { AIProvider, AIStreamHandle } from './providers/ai/ai-provider';
 /** 저장소 클론 없이 diff 만으로 리뷰할 때의 소스 접근 지침 */
 const SOURCE_DIFF_ONLY = '로컬 파일을 읽으려 하지 말고 아래 제공된 diff 만으로 리뷰하세요.';
 /** 자동 리뷰가 브랜치를 클론해 cwd 로 넘긴 경우의 소스 접근 지침 */
-const SOURCE_WITH_REPO = `현재 작업 디렉터리에 이 브랜치의 저장소가 클론되어 있습니다.
-diff 만으로 판단이 어려운 지적은 파일을 직접 읽어 호출부·타입 정의·테스트까지 확인한 뒤 쓰세요.`;
+const sourceWithRepo = (targetBranch: string): string =>
+  `현재 작업 디렉터리에 이 브랜치의 저장소가 클론되어 있고, 파일 열람과 git 조회가 허용돼 있습니다.
+- diff 만으로 판단이 어려운 지적은 파일을 직접 읽어 호출부·타입 정의·테스트까지 확인하고 쓰세요.
+- 아래 "변경 파일" 은 분량 때문에 일부가 생략·절단됩니다. 전체 변경은 직접 확인하세요:
+  \`git diff origin/${targetBranch || 'HEAD~1'}...HEAD\` (파일 목록만: \`--stat\`, 특정 파일: \`-- <경로>\`)
+- 따라서 "확인하지 못한 파일" 은 원칙적으로 없어야 합니다. 정말 확인이 불가능했을 때만 그 사유와 함께 적으세요.`;
 
-const systemPrompt = (hasRepo: boolean): string => `당신은 시니어 코드 리뷰어입니다. 아래 MR/PR 변경 사항을 분석하고
+const systemPrompt = (hasRepo: boolean, targetBranch: string): string => `당신은 시니어 코드 리뷰어입니다. 아래 MR/PR 변경 사항을 분석하고
 한국어로 간결하게 리뷰하세요. 형식: 마크다운.
 
 **출력 규칙**: 첫 글자부터 바로 리뷰 본문(마크다운 헤딩)으로 시작하세요.
 인사말, 작업 계획, "리뷰하겠습니다"/"확인해보겠습니다" 류의 메타 코멘트,
 소스 접근 가능 여부에 대한 언급을 절대 출력하지 마세요.
-${hasRepo ? SOURCE_WITH_REPO : SOURCE_DIFF_ONLY}
+${hasRepo ? sourceWithRepo(targetBranch) : SOURCE_DIFF_ONLY}
 
 **우선순위**: 아래 "변경 파일" 섹션의 최신 diff 를 먼저 꼼꼼히 읽고 리뷰하세요.
 
@@ -154,7 +158,7 @@ export function buildPrompt(
   const providerName = item.providerType === 'gitlab' ? 'GitLab MR' : 'GitHub PR';
 
   const header = [
-    systemPrompt(hasRepo),
+    systemPrompt(hasRepo, item.targetBranch),
     '',
     `## ${providerName} #${item.itemId}`,
     `- 제목: ${item.title}`,
@@ -190,7 +194,9 @@ export function buildPrompt(
     ? [
         '',
         `## 프롬프트에서 생략된 파일 (${omitted.length}개)`,
-        '아래 파일들은 diff가 포함되지 않았습니다. 리뷰 결과에 "확인하지 못한 파일"로 명시하세요.',
+        hasRepo
+          ? '아래 파일들은 분량 때문에 diff 를 넣지 않았습니다. 저장소가 클론되어 있으니 git diff 로 직접 확인하고 리뷰에 포함하세요.'
+          : '아래 파일들은 diff가 포함되지 않았습니다. 리뷰 결과에 "확인하지 못한 파일"로 명시하세요.',
         ...omitted.map((c) => `- ${c.new_path} [${changeStatus(c)}]`),
         '',
       ].join('\n')

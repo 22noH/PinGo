@@ -306,8 +306,20 @@ export interface StoreSchema {
    * 리뷰 창을 닫거나 목록에서 다른 항목으로 이동해도 재실행 없이 복원 가능.
    * 크기 제한: 최대 200항목, 각 항목 최대 200KB (tail 잘라냄).
    */
-  /** headSha: 이 리뷰가 어느 커밋 기준인지 — 자동 재리뷰 판단용(자동 리뷰가 저장할 때만 채워짐) */
-  reviewCache?: Record<string, { markdown: string; updatedAt: string; headSha?: string }>;
+  /**
+   * AI 리뷰 결과 캐시.
+   *  - headSha: 이 리뷰가 어느 커밋 기준인지 (참고용)
+   *  - resolvedThreadIds: 리뷰 시점에 해결돼 있던 토론 스레드 — 이후 새로 해결된 게
+   *    생기면 재리뷰한다(지적을 고치고 스레드를 닫는 흐름에 맞춘 트리거)
+   *  - seenUpdatedAt: 마지막으로 확인한 MR updatedAt — 변화 없으면 API 호출을 건너뛴다
+   */
+  reviewCache?: Record<string, {
+    markdown: string;
+    updatedAt: string;
+    headSha?: string;
+    resolvedThreadIds?: string[];
+    seenUpdatedAt?: string;
+  }>;
 }
 
 // ── IPC 페이로드 타입 ───────────────────────────────────────

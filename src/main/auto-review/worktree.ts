@@ -22,9 +22,18 @@ export interface ReviewWorktree {
   cleanup: () => Promise<void>;
 }
 
+/**
+ * git 실행. core.longpaths=true 필수 —
+ * Windows 는 기본 260자 제한이라 Boost 헤더 같은 깊은 경로에서 checkout 이 통째로 실패한다
+ * ("Filename too long"). 임시 폴더(짧은 경로)에서는 우연히 통과하던 것이,
+ * 사용자가 지정한 폴더로 옮기는 순간 터진다.
+ */
 function git(args: string[], cwd?: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn('git', ['-c', 'core.longpaths=true', ...args], {
+      cwd,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
     let stderr = '';
     child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
@@ -32,9 +41,20 @@ function git(args: string[], cwd?: string): Promise<void> {
     child.on('error', reject);
     child.on('close', (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`git ${args[0]} 실패 (code ${code}): ${stderr.trim().slice(0, 400)}`));
+      // 진행률 출력(Updating files: ...)이 stderr 앞부분을 가득 채우므로 뒤에서 자른다.
+      // 앞에서 자르면 진짜 원인이 안 보인다.
+      else reject(new Error(`git ${args[0]} 실패 (code ${code}): ${tailError(stderr)}`));
     });
   });
+}
+
+/** 진행률 노이즈를 걷어내고 실제 에러 줄 위주로 남긴다 */
+function tailError(stderr: string): string {
+  const meaningful = stderr
+    .split(/[\r\n]+/)
+    .map((l) => l.trim())
+    .filter((l) => l && !/^(Updating files|Receiving objects|Resolving deltas|remote:|Cloning into)/.test(l));
+  return (meaningful.length > 0 ? meaningful.join(' | ') : stderr.trim()).slice(-400);
 }
 
 /** 경로에 쓸 수 없는 문자 제거 — 브랜치명에 `/` 가 흔하다 */
@@ -55,6 +75,7 @@ export async function createReviewWorktree(
   branch: string,
   workDir?: string,
   label?: string,
+  targetBranch?: string,
 ): Promise<ReviewWorktree> {
   if (!cloneUrl) throw new Error('cloneUrl 이 비어 있습니다');
   if (!branch) throw new Error('branch 가 비어 있습니다');
@@ -68,7 +89,20 @@ export async function createReviewWorktree(
     dir = await mkdtemp(path.join(tmpdir(), 'pingo-review-'));
   }
   try {
-    await git(['clone', '--depth', '1', '--single-branch', '--branch', branch, cloneUrl, dir]);
+    // --depth 1 이 아니라 partial clone(blob:none) — 얕은 클론은 merge-base 가 없어
+    // `git diff origin/<target>...HEAD` 가 성립하지 않는다. AI 가 진짜 diff 를 뜨려면
+    // 히스토리가 필요하다. blob 은 필요할 때만 받으므로 전체 클론보다 가볍다.
+    await git(['clone', '--filter=blob:none', '--single-branch', '--branch', branch, cloneUrl, dir]);
+    // 클론된 저장소에도 남겨둔다 — AI 가 이 안에서 실행하는 git 명령에도 적용되도록
+    await git(['config', 'core.longpaths', 'true'], dir).catch(() => undefined);
+    if (targetBranch && targetBranch !== branch) {
+      // 타겟 브랜치를 origin/<target> 으로 가져와 diff 기준점을 만든다.
+      // 실패해도 리뷰는 진행 — 그 경우 AI 는 프롬프트의 diff 만 쓴다.
+      await git(
+        ['fetch', '--filter=blob:none', 'origin', `${targetBranch}:refs/remotes/origin/${targetBranch}`],
+        dir,
+      ).catch(() => undefined);
+    }
   } catch (err) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     throw err;

@@ -1,28 +1,35 @@
 // src/test/autoreview-rereview.test.ts
-// 자동 재리뷰 트리거 — "새 커밋이 푸시됐을 때만" 이 지켜지는지.
+// 자동 재리뷰 트리거 — "지난 리뷰 이후 새로 해결된 스레드가 있을 때만" 이 지켜지는지.
 // 이 가드가 느슨해지면 폴링(30초)마다 팀이 보는 MR 에 AI 댓글이 쌓인다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hasNewCommits } from '../main/auto-review';
+import { newlyResolved, resolvedIds } from '../main/auto-review';
+import type { Discussion } from '../shared/types';
 
-test('새 커밋이 들어오면 재리뷰', () => {
-  assert.equal(hasNewCommits({ headSha: 'aaa111' }, { headSha: 'bbb222' }), true);
+const thread = (id: string, resolved: boolean | undefined): Discussion => ({
+  id, resolved, notes: [],
+} as unknown as Discussion);
+
+test('지난 리뷰 이후 새로 해결된 스레드를 잡아낸다', () => {
+  const now = resolvedIds([thread('a', true), thread('b', true), thread('c', false)]);
+  assert.deepEqual(now, ['a', 'b']);
+  assert.deepEqual(newlyResolved(['a'], now), ['b'], 'b 가 새로 해결됨');
 });
 
-test('같은 커밋이면 재리뷰 안 함 — 폴링마다 댓글이 쌓이지 않아야 한다', () => {
-  assert.equal(hasNewCommits({ headSha: 'aaa111' }, { headSha: 'aaa111' }), false);
+test('해결 상태에 변화가 없으면 재리뷰 안 함 — 폴링마다 댓글이 쌓이지 않아야 한다', () => {
+  assert.deepEqual(newlyResolved(['a', 'b'], ['a', 'b']), []);
+});
+
+test('스레드를 다시 열어(unresolve) 개수가 줄어도 재리뷰 안 함', () => {
+  assert.deepEqual(newlyResolved(['a', 'b'], ['a']), []);
 });
 
 test('리뷰 이력이 없으면 재리뷰 경로 아님 (첫 리뷰가 담당)', () => {
-  assert.equal(hasNewCommits(undefined, { headSha: 'aaa111' }), false);
+  assert.deepEqual(newlyResolved(undefined, ['a', 'b']), []);
 });
 
-test('SHA 를 모르면 판단 불가 → 재리뷰 안 함', () => {
-  assert.equal(hasNewCommits({ headSha: undefined }, { headSha: 'bbb222' }), false,
-    '캐시에 SHA 가 없으면 비교 불가');
-  assert.equal(hasNewCommits({ headSha: 'aaa111' }, { headSha: undefined }), false,
-    '아이템에 SHA 가 없으면 비교 불가');
-  assert.equal(hasNewCommits({}, {}), false);
+test('resolved 가 undefined 인 일반 코멘트는 해결로 치지 않는다', () => {
+  assert.deepEqual(resolvedIds([thread('x', undefined)]), []);
 });
 
 // ── 클론 폴더 이름 충돌 ─────────────────────────────────────

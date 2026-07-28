@@ -48,6 +48,14 @@ export class ClaudeCLIProvider implements AIProvider {
     if (model) args.push('--model', model);
     const effort = (this.config.effort ?? '').trim();
     if (effort) args.push('--effort', effort);
+    // 자동 리뷰가 클론한 저장소에서 실행될 때만 — 파일 열람과 git diff 를 프롬프트 없이 허용.
+    // 이게 없으면 -p(비대화) 모드에서 도구 사용이 막혀 "확인하지 못한 파일" 로만 끝난다.
+    if (cwd) {
+      args.push(
+        '--allowedTools', 'Read', 'Grep', 'Glob',
+        'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)',
+      );
+    }
     log.info(
       `claude-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''} ` +
       `model=${model || '(default)'} effort=${effort || '(default)'}` +

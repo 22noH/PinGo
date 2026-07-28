@@ -6,8 +6,8 @@
 import { shell } from 'electron';
 import log from 'electron-log';
 import type Store from 'electron-store';
-import type { AIConfig, GitConfig, ReviewItemSummary, StoreSchema } from '../shared/types';
-import { AutoReviewOrchestrator, createAutoReviewOrchestrator, resolveAutoReviewConcurrency, reviewableDiscussions } from './auto-review/orchestrator';
+import type { AIConfig, Discussion, GitConfig, ReviewItemSummary, StoreSchema } from '../shared/types';
+import { AutoReviewOrchestrator, createAutoReviewOrchestrator, isResolved, resolveAutoReviewConcurrency, reviewableDiscussions } from './auto-review/orchestrator';
 import type { AutoReviewRequest } from './auto-review/orchestrator';
 import { createReviewWorktree } from './auto-review/worktree';
 import { createAIProvider } from './providers/ai/ai-provider';
@@ -82,7 +82,9 @@ async function cloneBranch(
     const workDir = store.get('settings').mergeWorkDir;
     const label = worktreeLabel(item);
     log.info(`auto-review: clone 시작 ${item.id} → ${workDir ? `${workDir}\\pingo-review` : '(임시 폴더)'}`);
-    const wt = await createReviewWorktree(u.toString(), item.sourceBranch, workDir, label);
+    const wt = await createReviewWorktree(
+      u.toString(), item.sourceBranch, workDir, label, item.targetBranch,
+    );
     log.info(`auto-review: cloned ${item.id} → ${wt.dir}`);
     return wt;
   } catch (err) {
@@ -92,8 +94,17 @@ async function cloneBranch(
   }
 }
 
+/** 리뷰 결과 — 마크다운 + 리뷰 시점의 resolved 스레드 id (다음 재리뷰 판단 기준) */
+export interface ReviewOutcome {
+  markdown: string;
+  resolvedThreadIds: string[];
+}
+
 /** 리뷰 1건 실행: clone → 변경/토론 수집 → AI. */
-async function runOne(req: AutoReviewRequest<AutoReviewPayload>, signal: AbortSignal): Promise<string> {
+async function runOne(
+  req: AutoReviewRequest<AutoReviewPayload>,
+  signal: AbortSignal,
+): Promise<ReviewOutcome> {
   const { item, cfg, ai } = req.payload;
   const provider = createGitProvider(cfg);
 
@@ -103,6 +114,8 @@ async function runOne(req: AutoReviewRequest<AutoReviewPayload>, signal: AbortSi
   ]);
   // resolved 스레드는 제외 — 이미 정리된 지적을 다시 댓글로 달지 않기 위함
   full.discussions = reviewableDiscussions(discussions);
+  // 이번 리뷰 시점의 해결된 스레드 — 이후 새로 해결되는 게 생기면 재리뷰 트리거
+  const resolvedThreadIds = resolvedIds(discussions);
 
   // clone 은 API 호출 뒤에 — 병렬로 돌리면 API 가 먼저 실패했을 때 클론 디렉터리가 미아가 된다
   const worktree = await cloneBranch(req.payload);
@@ -125,22 +138,30 @@ async function runOne(req: AutoReviewRequest<AutoReviewPayload>, signal: AbortSi
       }, { once: true });
     });
     if (!markdown.trim()) throw new Error('빈 리뷰 결과');
-    return markdown;
+    return { markdown, resolvedThreadIds };
   } finally {
     await worktree?.cleanup();
   }
 }
 
 /** 리뷰 완료 후: 캐시 저장 → MR/PR 댓글 게시. */
-async function postOne(req: AutoReviewRequest<AutoReviewPayload>, markdown: string): Promise<void> {
+async function postOne(
+  req: AutoReviewRequest<AutoReviewPayload>,
+  outcome: ReviewOutcome,
+): Promise<void> {
   const { item, cfg, store } = req.payload;
+  const { markdown } = outcome;
 
   const cache = store.get('reviewCache') ?? {};
   cache[item.id] = {
     markdown: markdown.length > MAX_CACHED_REVIEW_CHARS ? markdown.slice(-MAX_CACHED_REVIEW_CHARS) : markdown,
     updatedAt: new Date().toISOString(),
-    // 어느 커밋을 리뷰했는지 기록 — 다음 폴링에서 새 커밋 여부 판단에 쓰인다
+    // 어느 커밋을 리뷰했는지 기록 (참고용)
     headSha: item.headSha,
+    // 이 시점에 해결돼 있던 스레드 — 이후 새로 해결된 게 생기면 재리뷰한다
+    resolvedThreadIds: outcome.resolvedThreadIds,
+    // 다음 tick 에서 "변화 없음" 을 싸게 걸러내기 위한 기준값
+    seenUpdatedAt: item.updatedAt,
   };
   store.set('reviewCache', cache);
   log.info(`auto-review: done ${item.id} (${markdown.length} chars)`);
@@ -161,14 +182,14 @@ function notifyFailure(payload: AutoReviewPayload, reason: string): void {
 // 설정의 동시 상한이 바뀌면 재생성한다 — 앱 재시작 없이 설정이 먹도록.
 // ponytail: 재생성 시 대기열은 버려진다(실행 중인 리뷰는 이전 인스턴스에서 그대로 완주).
 //   설정 변경은 드물고, 버려진 항목은 다음 폴링에서 캐시 미존재로 다시 잡힌다.
-let orchestrator: AutoReviewOrchestrator<AutoReviewPayload, string> | null = null;
+let orchestrator: AutoReviewOrchestrator<AutoReviewPayload, ReviewOutcome> | null = null;
 let orchestratorMax = 0;
 
-function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReviewPayload, string> {
+function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReviewPayload, ReviewOutcome> {
   if (orchestrator && orchestratorMax === concurrency) return orchestrator;
   if (orchestrator) log.info(`auto-review: 동시 상한 변경 ${orchestratorMax} → ${concurrency}, 오케스트레이터 재생성`);
   orchestratorMax = concurrency;
-  orchestrator = createAutoReviewOrchestrator<AutoReviewPayload, string>(
+  orchestrator = createAutoReviewOrchestrator<AutoReviewPayload, ReviewOutcome>(
     { autoReviewConcurrency: concurrency },
     {
       runReview: runOne,
@@ -192,18 +213,20 @@ export function getAutoReviewStatus(): { active: number; queued: number } {
   };
 }
 
+/** 해결(resolved)된 스레드 id 목록 */
+export function resolvedIds(discussions: Discussion[]): string[] {
+  return discussions.filter(isResolved).map((d) => d.id);
+}
+
 /**
- * 이미 리뷰한 MR/PR 에 새 커밋이 들어왔는지 — 재리뷰 판단.
- * 양쪽 SHA 를 모두 알 때만 true. 하나라도 모르면 판단 불가로 보고 재리뷰하지 않는다
- * (모르는 채로 돌리면 폴링마다 댓글이 쌓인다).
+ * 지난 리뷰 이후 새로 해결된 스레드가 있는지 — 재리뷰 트리거.
+ * 지적을 고치고 스레드를 닫으면 그때 다시 본다. 커밋마다 도는 것보다 낫다:
+ * 중간 커밋에는 반응하지 않고, "고쳤다" 는 신호가 왔을 때만 확인한다.
  */
-export function hasNewCommits(
-  cached: { headSha?: string } | undefined,
-  item: Pick<ReviewItemSummary, 'headSha'>,
-): boolean {
-  if (!cached) return false; // 리뷰한 적 없음 — 재리뷰가 아니라 첫 리뷰 경로
-  if (!cached.headSha || !item.headSha) return false;
-  return cached.headSha !== item.headSha;
+export function newlyResolved(cachedIds: string[] | undefined, current: string[]): string[] {
+  if (!cachedIds) return []; // 리뷰 이력이 없으면 재리뷰가 아니라 첫 리뷰 경로
+  const before = new Set(cachedIds);
+  return current.filter((id) => !before.has(id));
 }
 
 function submit(store: Store<StoreSchema>, item: ReviewItemSummary, why: string): void {
@@ -229,19 +252,40 @@ export function maybeAutoReview(store: Store<StoreSchema>, item: ReviewItemSumma
 /**
  * 폴링 tick 마다 열린 MR/PR 전체에 대해 호출.
  *  - 리뷰 이력 없음 → 첫 리뷰 (이벤트를 놓쳤거나, 자동 리뷰를 방금 켠 경우)
- *  - 리뷰 이력 있음 → 새 커밋이 들어왔을 때만 재리뷰
+ *  - 리뷰 이력 있음 → 지난 리뷰 이후 새로 해결된 스레드가 있을 때만 재리뷰
  *
- * 범위 설정('mine'/'all')은 submit 안에서 걸린다. 'all' 이면 열려 있는 팀 MR 전부가
- * 대상이 되므로 한 번에 많이 잡힐 수 있는데, 대기열이 동시 상한만큼만 유지되고
- * 초과분은 다음 tick 에 다시 잡히므로 자연스럽게 나눠 처리된다.
+ * 토론 조회는 MR 의 updatedAt 이 바뀌었을 때만 한다. 안 그러면 리뷰한 MR 수만큼
+ * 30초마다 API 를 때린다.
  */
 export function maybeAutoReviewOnPoll(store: Store<StoreSchema>, item: ReviewItemSummary): void {
-  if (store.get('settings').autoReviewEnabled !== true) return;
+  const settings = store.get('settings');
+  if (settings.autoReviewEnabled !== true) return;
   const cached = (store.get('reviewCache') ?? {})[item.id];
   if (!cached) {
     submit(store, item, '첫 리뷰(폴링)');
     return;
   }
-  if (!hasNewCommits(cached, item)) return;
-  submit(store, item, `새 커밋 ${cached.headSha?.slice(0, 8)} → ${item.headSha?.slice(0, 8)}`);
+  if (cached.seenUpdatedAt === item.updatedAt) return; // MR 에 아무 변화 없음
+
+  const cfg = settings.gitConnections.find((c) => c.id === item.gitConfigId);
+  if (!cfg) return;
+  if (!isReviewTarget(settings.autoReviewScope, cfg, item)) return;
+
+  void (async (): Promise<void> => {
+    try {
+      const discussions = await createGitProvider(cfg).fetchDiscussions(item);
+      const fresh = newlyResolved(cached.resolvedThreadIds, resolvedIds(discussions));
+      // updatedAt 을 갱신해 다음 tick 에서 같은 조회를 반복하지 않는다
+      const cache = store.get('reviewCache') ?? {};
+      const entry = cache[item.id];
+      if (entry) {
+        entry.seenUpdatedAt = item.updatedAt;
+        store.set('reviewCache', cache);
+      }
+      if (fresh.length === 0) return;
+      submit(store, item, `스레드 ${fresh.length}건 해결됨`);
+    } catch (err) {
+      log.warn(`auto-review: 토론 조회 실패 ${item.id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  })();
 }
