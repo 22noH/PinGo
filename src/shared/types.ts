@@ -130,6 +130,11 @@ export interface ReviewItemSummary {
   projectId: number;
   /** GitHub 전용: "{owner}/{repo}" — GitHub API 호출에 필요. GitLab에서는 undefined */
   repoFullName?: string;
+  /**
+   * source 브랜치 head 커밋 SHA. 자동 재리뷰 판단용 — 새 커밋이 푸시되면 값이 바뀐다.
+   * updatedAt 은 라벨 변경·댓글에도 갱신돼 재리뷰 트리거로는 쓸 수 없다.
+   */
+  headSha?: string;
   createdAt: string;   // ISO 8601
   updatedAt: string;   // ISO 8601
 }
@@ -294,7 +299,8 @@ export interface StoreSchema {
    * 리뷰 창을 닫거나 목록에서 다른 항목으로 이동해도 재실행 없이 복원 가능.
    * 크기 제한: 최대 200항목, 각 항목 최대 200KB (tail 잘라냄).
    */
-  reviewCache?: Record<string, { markdown: string; updatedAt: string }>;
+  /** headSha: 이 리뷰가 어느 커밋 기준인지 — 자동 재리뷰 판단용(자동 리뷰가 저장할 때만 채워짐) */
+  reviewCache?: Record<string, { markdown: string; updatedAt: string; headSha?: string }>;
 }
 
 // ── IPC 페이로드 타입 ───────────────────────────────────────

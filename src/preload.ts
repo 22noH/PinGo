@@ -154,7 +154,8 @@ export interface ElectronAPI {
 
   // AI 리뷰 결과 캐시
   loadReviewCache: (itemId: string) => Promise<{ markdown: string; updatedAt: string } | null>;
-  saveReviewCache: (itemId: string, markdown: string) => void;
+  /** headSha: 이 리뷰가 어느 커밋 기준인지 — 빠지면 그 MR 은 자동 재리뷰 판단이 불가해진다 */
+  saveReviewCache: (itemId: string, markdown: string, headSha?: string) => void;
 
   // ── v3 신규 — Jira ─────────────────────────────────────
   loadJiraConnections: () => Promise<JiraConnectionsLoadResult>;
@@ -351,8 +352,8 @@ const api: ElectronAPI = {
   // AI 리뷰 결과 캐시
   loadReviewCache: (itemId: string): Promise<{ markdown: string; updatedAt: string } | null> =>
     ipcRenderer.invoke(REVIEW_CACHE_LOAD, itemId) as Promise<{ markdown: string; updatedAt: string } | null>,
-  saveReviewCache: (itemId: string, markdown: string): void => {
-    ipcRenderer.send(REVIEW_CACHE_SAVE, { itemId, markdown });
+  saveReviewCache: (itemId: string, markdown: string, headSha?: string): void => {
+    ipcRenderer.send(REVIEW_CACHE_SAVE, { itemId, markdown, headSha });
   },
 
   // ── v3 — 댓글 답글 ────────────────────────────────────

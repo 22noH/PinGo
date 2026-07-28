@@ -240,7 +240,7 @@ window.electronAPI.onReviewDone(({ itemId }: ReviewDonePayload): void => {
     renderBar();
   }
   // 완료된 리뷰를 영구 캐시에 저장 — 창을 닫았다가 다시 열어도 복원 가능.
-  if (text.trim().length > 0) window.electronAPI.saveReviewCache(itemId, text);
+  if (text.trim().length > 0) window.electronAPI.saveReviewCache(itemId, text, tab.item.headSha);
 });
 
 window.electronAPI.onReviewError(({ itemId, message }: ReviewErrorPayload): void => {

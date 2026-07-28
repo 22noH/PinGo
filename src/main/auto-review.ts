@@ -108,6 +108,8 @@ async function postOne(req: AutoReviewRequest<AutoReviewPayload>, markdown: stri
   cache[item.id] = {
     markdown: markdown.length > MAX_CACHED_REVIEW_CHARS ? markdown.slice(-MAX_CACHED_REVIEW_CHARS) : markdown,
     updatedAt: new Date().toISOString(),
+    // 어느 커밋을 리뷰했는지 기록 — 다음 폴링에서 새 커밋 여부 판단에 쓰인다
+    headSha: item.headSha,
   };
   store.set('reviewCache', cache);
   log.info(`auto-review: done ${item.id} (${markdown.length} chars)`);
@@ -151,17 +153,48 @@ function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReview
   return orchestrator;
 }
 
-export function maybeAutoReview(store: Store<StoreSchema>, item: ReviewItemSummary): void {
+/**
+ * 이미 리뷰한 MR/PR 에 새 커밋이 들어왔는지 — 재리뷰 판단.
+ * 양쪽 SHA 를 모두 알 때만 true. 하나라도 모르면 판단 불가로 보고 재리뷰하지 않는다
+ * (모르는 채로 돌리면 폴링마다 댓글이 쌓인다).
+ */
+export function hasNewCommits(
+  cached: { headSha?: string } | undefined,
+  item: Pick<ReviewItemSummary, 'headSha'>,
+): boolean {
+  if (!cached) return false; // 리뷰한 적 없음 — 재리뷰가 아니라 첫 리뷰 경로
+  if (!cached.headSha || !item.headSha) return false;
+  return cached.headSha !== item.headSha;
+}
+
+function submit(store: Store<StoreSchema>, item: ReviewItemSummary, why: string): void {
   const settings = store.get('settings');
-  if (settings.autoReviewEnabled !== true) return;
-  if ((store.get('reviewCache') ?? {})[item.id]) return; // 이미 리뷰됨 — 재실행 안 함
   const cfg = settings.gitConnections.find((c) => c.id === item.gitConfigId);
   if (!cfg) return;
   if (!isMyItem(cfg, item)) return;
 
-  log.info(`auto-review: queue ${item.id} (${item.title.slice(0, 60)})`);
+  log.info(`auto-review: queue ${item.id} (${why}) ${item.title.slice(0, 60)}`);
   getOrchestrator(resolveAutoReviewConcurrency(settings)).submit({
     key: item.id,
     payload: { item, cfg, ai: settings.ai, store },
   });
+}
+
+/** 새 MR/PR·리뷰어 지정 감지 시 첫 리뷰. 이미 리뷰한 적이 있으면 아무것도 하지 않는다. */
+export function maybeAutoReview(store: Store<StoreSchema>, item: ReviewItemSummary): void {
+  if (store.get('settings').autoReviewEnabled !== true) return;
+  if ((store.get('reviewCache') ?? {})[item.id]) return; // 이미 리뷰됨 — 첫 리뷰 경로 종료
+  submit(store, item, '첫 리뷰');
+}
+
+/**
+ * 폴링 tick 마다 열린 MR/PR 전체에 대해 호출 — 이미 리뷰한 것에 새 커밋이 들어왔으면 재리뷰.
+ * 리뷰 이력이 없는 항목은 여기서 건드리지 않는다. 그러지 않으면 자동 리뷰를 켠 직후
+ * 열려 있던 MR 전부에 댓글이 한꺼번에 달린다.
+ */
+export function maybeReReview(store: Store<StoreSchema>, item: ReviewItemSummary): void {
+  if (store.get('settings').autoReviewEnabled !== true) return;
+  const cached = (store.get('reviewCache') ?? {})[item.id];
+  if (!hasNewCommits(cached, item)) return;
+  submit(store, item, `새 커밋 ${cached?.headSha?.slice(0, 8)} → ${item.headSha?.slice(0, 8)}`);
 }

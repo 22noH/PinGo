@@ -43,6 +43,8 @@ interface GitLabMRListItem {
   target_branch: string;
   reviewers?: GitLabUserBrief[];
   project_id: number;
+  /** source 브랜치 head 커밋 — 자동 재리뷰 트리거 판단용 */
+  sha?: string;
   created_at: string;
   updated_at: string;
 }
@@ -283,6 +285,7 @@ export class GitLabProvider implements GitProvider {
       sourceBranch: raw.source_branch,
       targetBranch: raw.target_branch,
       projectId: raw.project_id,
+      headSha: raw.sha,
       createdAt: raw.created_at,
       updatedAt: raw.updated_at,
     };

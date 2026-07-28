@@ -390,6 +390,7 @@ export class GitHubProvider implements GitProvider {
       targetBranch: detail?.base.ref ?? '',
       projectId,
       repoFullName: repoPath,
+      headSha: detail?.head.sha,
       createdAt: search.created_at,
       updatedAt: search.updated_at,
     };

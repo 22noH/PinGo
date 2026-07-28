@@ -217,14 +217,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     REVIEW_CACHE_SAVE,
     (_e, payload: unknown): void => {
       if (!payload || typeof payload !== 'object') return;
-      const { itemId, markdown } = payload as { itemId?: unknown; markdown?: unknown };
+      const { itemId, markdown, headSha } = payload as {
+        itemId?: unknown; markdown?: unknown; headSha?: unknown;
+      };
       if (typeof itemId !== 'string' || typeof markdown !== 'string') return;
       const cache = deps.store.get('reviewCache') ?? {};
       // 최대 200KB 캡
       const trimmed = markdown.length > 200_000
         ? markdown.slice(markdown.length - 200_000)
         : markdown;
-      cache[itemId] = { markdown: trimmed, updatedAt: new Date().toISOString() };
+      cache[itemId] = {
+        markdown: trimmed,
+        updatedAt: new Date().toISOString(),
+        // 수동 리뷰도 리뷰한 커밋을 기록 — 안 넣으면 이 MR 은 자동 재리뷰가 영영 안 돈다.
+        // 렌더러가 못 보낸 경우엔 기존 값을 유지한다.
+        headSha: typeof headSha === 'string' ? headSha : cache[itemId]?.headSha,
+      };
       // 항목 수 캡 200 — 오래된 것부터 제거
       const entries = Object.entries(cache);
       if (entries.length > 200) {

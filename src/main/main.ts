@@ -28,7 +28,7 @@ import { createPoller, PollerController, PollerSeenState } from './poller';
 import { detectV3ItemEvents } from './poller-events';
 import { createJiraBridge, JiraBridgeController } from './main-jira-bridge';
 import { sendMrNotification } from './notifier';
-import { maybeAutoReview } from './auto-review';
+import { maybeAutoReview, maybeReReview } from './auto-review';
 import type { JiraEvent, JiraIssueSummary } from '../shared/types';
 import { JIRA_ISSUE_NEW, LIST_JIRA_UPDATED } from '../shared/constants';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
@@ -351,6 +351,8 @@ function reconfigurePoller(
       },
       onOpenItems: (openItems: ReviewItemSummary[]): void => {
         updateRecentFromOpenItems(store, openItems);
+        // 이미 리뷰한 MR/PR 에 새 커밋이 들어왔으면 재리뷰 (이벤트로는 커밋 push 를 알 수 없다)
+        for (const it of openItems) maybeReReview(store, it);
       },
       onError: (err: Error): void => {
         log.error(`main: poll error — ${err.message}`);
