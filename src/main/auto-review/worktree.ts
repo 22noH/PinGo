@@ -1,8 +1,15 @@
 // main/auto-review/worktree.ts — 자동 리뷰용 격리 작업 트리(clone) 생성/정리
 //
 // 대상 브랜치를 임시 격리 디렉터리에 shallow single-branch 클론한다 = 격리된 작업 트리.
-// ponytail: 리뷰마다 독립 클론으로 격리. 공유 bare mirror + `git worktree add` 는
-//   클론 비용이 문제가 될 때 도입.
+//
+// ponytail: 리뷰마다 독립 클론으로 격리. 큰 저장소(oneguide, 2026-07 측정)에서 MR 1건당 ~300초.
+//   clone 옵션으로는 더 못 줄인다 — 같은 저장소/브랜치 실측:
+//     --depth 1 (현재) 301s / --filter=blob:none 343s / 둘 다 374s.
+//   partial clone 은 checkout 때 blob 을 되받아와 오히려 느리다(merge-resolver 가 blob:none 을
+//   쓰는 이유는 속도가 아니라 shallow 가 merge-base 를 깨뜨려서 — 리뷰에는 해당 없음).
+//   더 빠르게 하려면 옵션이 아니라 구조를 바꿔야 한다: 프로젝트별 영구 캐시 클론(최초 1회 clone,
+//   이후 fetch + checkout) 또는 변경 파일 주변만 sparse checkout. 클론 비용이 실제로 문제가
+//   될 때 도입.
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

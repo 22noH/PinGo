@@ -127,3 +127,30 @@ export function sendMrNotification(
   notification.show();
   log.info(`notifier: shown reason=${options.reason} item=${item.id}`);
 }
+
+/**
+ * 자동 리뷰 실패 토스트 — 실패가 로그에만 남고 조용히 묻히는 것을 막는다.
+ * (AI CLI 로그인 만료처럼 사용자가 조치해야 풀리는 실패가 대부분이라 알려야 한다.)
+ */
+export function sendAutoReviewFailure(
+  item: ReviewItemSummary,
+  reason: string,
+  onClick: () => void,
+): void {
+  if (!Notification.isSupported()) {
+    log.warn('notifier: Notification not supported on this platform');
+    return;
+  }
+  const typeLabel = item.providerType === 'gitlab' ? 'MR' : 'PR';
+  const notification = new Notification({
+    title: `[${item.providerLabel}] 자동 리뷰 실패: ${typeLabel} #${item.itemId}`,
+    body: `${truncate(item.title, 60)}\n${truncate(reason, 100)}`,
+    silent: false,
+  });
+  notification.on('click', onClick);
+  notification.on('failed', (_event, error) => {
+    log.error(`notifier: 실패 알림 표시 실패 item=${item.id}: ${error}`);
+  });
+  notification.show();
+  log.info(`notifier: auto-review 실패 알림 item=${item.id}`);
+}

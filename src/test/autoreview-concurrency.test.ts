@@ -43,12 +43,14 @@ test('설정 변경 → 저장값이 동시 실행 상한으로 반영된다', a
   assert.equal(orch.activeCount, 2, '동시 상한 2를 넘지 않아야 한다');
   assert.equal(orch.queuedCount, 2, '초과분은 대기열로');
 
-  // 실행 중인 것들을 순차 완료 → 대기열이 슬롯을 채워야 한다
-  while (deferreds.length > 0) {
+  // 실행 중인 것들을 순차 완료 → 대기열이 슬롯을 채워야 한다.
+  // 대기열에서 새로 시작된 리뷰가 deferreds 에 추가되므로 posted 기준으로 돈다
+  // (deferreds.length 기준으로 돌면 드레인이 끝나기 전에 루프를 빠져나가 hang).
+  while (posted < 4) {
     const done = deferreds.shift();
-    done?.();
-    await Promise.resolve(); // finally/drain 마이크로태스크 플러시
-    await Promise.resolve();
+    assert.ok(done, '아직 완료되지 않은 리뷰가 대기하고 있어야 한다');
+    done();
+    await new Promise((r) => setImmediate(r)); // finally → drain → 다음 리뷰 시작까지 플러시
     assert.ok(orch.activeCount <= 2, '드레인 중에도 상한을 넘지 않아야 한다');
   }
 

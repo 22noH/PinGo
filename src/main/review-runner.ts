@@ -4,13 +4,19 @@ import type { Discussion, ItemChange, ReviewItemWithChanges } from '../shared/ty
 import { MAX_CHANGES_IN_REVIEW, MAX_DIFF_CHARS } from '../shared/constants';
 import type { AIProvider, AIStreamHandle } from './providers/ai/ai-provider';
 
-const SYSTEM_PROMPT = `당신은 시니어 코드 리뷰어입니다. 아래 MR/PR 변경 사항을 분석하고
+/** 저장소 클론 없이 diff 만으로 리뷰할 때의 소스 접근 지침 */
+const SOURCE_DIFF_ONLY = '로컬 파일을 읽으려 하지 말고 아래 제공된 diff 만으로 리뷰하세요.';
+/** 자동 리뷰가 브랜치를 클론해 cwd 로 넘긴 경우의 소스 접근 지침 */
+const SOURCE_WITH_REPO = `현재 작업 디렉터리에 이 브랜치의 저장소가 클론되어 있습니다.
+diff 만으로 판단이 어려운 지적은 파일을 직접 읽어 호출부·타입 정의·테스트까지 확인한 뒤 쓰세요.`;
+
+const systemPrompt = (hasRepo: boolean): string => `당신은 시니어 코드 리뷰어입니다. 아래 MR/PR 변경 사항을 분석하고
 한국어로 간결하게 리뷰하세요. 형식: 마크다운.
 
 **출력 규칙**: 첫 글자부터 바로 리뷰 본문(마크다운 헤딩)으로 시작하세요.
 인사말, 작업 계획, "리뷰하겠습니다"/"확인해보겠습니다" 류의 메타 코멘트,
 소스 접근 가능 여부에 대한 언급을 절대 출력하지 마세요.
-로컬 파일을 읽으려 하지 말고 아래 제공된 diff 만으로 리뷰하세요.
+${hasRepo ? SOURCE_WITH_REPO : SOURCE_DIFF_ONLY}
 
 **우선순위**: 아래 "변경 파일" 섹션의 최신 diff 를 먼저 꼼꼼히 읽고 리뷰하세요.
 
@@ -132,7 +138,14 @@ function buildPrevReviewSection(prevReview: string | undefined): string {
   ].join('\n');
 }
 
-export function buildPrompt(item: ReviewItemWithChanges, prevReview?: string): string {
+/**
+ * @param hasRepo 저장소가 클론되어 AI 의 cwd 로 전달되는 경우 true — 파일 직접 열람을 허용하는 지침으로 바뀐다.
+ */
+export function buildPrompt(
+  item: ReviewItemWithChanges,
+  prevReview?: string,
+  hasRepo = false,
+): string {
   const allChanges = item.changes;
   const selected = [...allChanges]
     .sort((a, b) => diffChangedLines(b.diff) - diffChangedLines(a.diff))
@@ -141,7 +154,7 @@ export function buildPrompt(item: ReviewItemWithChanges, prevReview?: string): s
   const providerName = item.providerType === 'gitlab' ? 'GitLab MR' : 'GitHub PR';
 
   const header = [
-    SYSTEM_PROMPT,
+    systemPrompt(hasRepo),
     '',
     `## ${providerName} #${item.itemId}`,
     `- 제목: ${item.title}`,
@@ -191,13 +204,14 @@ export function buildPrompt(item: ReviewItemWithChanges, prevReview?: string): s
 
 export interface RunHandle extends AIStreamHandle {}
 
-/** AIProvider로 리뷰 스트리밍 실행 */
+/** AIProvider로 리뷰 스트리밍 실행. cwd 를 주면 CLI provider 가 그 디렉터리에서 실행된다. */
 export function runReview(
   provider: AIProvider,
   prompt: string,
   onChunk: (s: string) => void,
   onDone: () => void,
   onError: (e: Error) => void,
+  cwd?: string,
 ): RunHandle {
-  return provider.streamReview(prompt, onChunk, onDone, onError);
+  return provider.streamReview(prompt, onChunk, onDone, onError, cwd);
 }

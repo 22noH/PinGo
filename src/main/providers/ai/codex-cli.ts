@@ -25,6 +25,7 @@ export class CodexCLIProvider implements AIProvider {
     onChunk: (text: string) => void,
     onDone: () => void,
     onError: (err: Error) => void,
+    cwd?: string,
   ): AIStreamHandle {
     const execPath = resolveCliExecPath('codex', this.config.execPath);
     const useShell = needsShell(execPath);
@@ -46,6 +47,7 @@ export class CodexCLIProvider implements AIProvider {
     const proc = spawn(execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: useShell,
+      cwd,
     });
 
     let aborted = false;

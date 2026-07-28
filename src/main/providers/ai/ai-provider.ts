@@ -15,12 +15,16 @@ export interface AIProvider {
   /**
    * 프롬프트를 스트리밍으로 실행. onChunk / onDone / onError 중 정확히 하나만
    * 최종적으로 호출됨. AbortHandle 을 반환.
+   *
+   * @param cwd CLI 계열 provider 의 작업 디렉터리 — 자동 리뷰가 클론한 저장소를 넘겨
+   *   AI 가 diff 밖 파일까지 읽게 한다. API 계열(anthropic/openai/ollama)은 무시.
    */
   streamReview(
     prompt: string,
     onChunk: (text: string) => void,
     onDone: () => void,
     onError: (err: Error) => void,
+    cwd?: string,
   ): AIStreamHandle;
 
   /** CLI 설치 확인 / API 키 ping / Ollama 모델 목록 조회 */

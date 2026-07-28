@@ -158,6 +158,17 @@
       <!-- [자동 리뷰] -->
       <div id="panel-autoreview" role="tabpanel" aria-labelledby="tab-autoreview" class="tab-panel" hidden>
         <div class="field">
+          <label class="checkbox-row">
+            <input id="auto-review-enabled" type="checkbox">
+            <span class="checkbox-label">새 MR/PR 자동 AI 리뷰 켜기</span>
+          </label>
+          <span class="field-hint">
+            새 MR/PR 또는 리뷰어 지정 감지 시 브랜치를 임시 폴더에 클론해 AI 리뷰를 실행하고,
+            결과를 MR/PR 댓글로 등록합니다. 리뷰 창을 열면 같은 결과가 그대로 표시됩니다.
+            <strong>이 체크박스를 켜야 아래 설정이 동작합니다.</strong>
+          </span>
+        </div>
+        <div class="field">
           <label class="field-label" for="autoreview-concurrency">
             동시 리뷰 상한 <span class="text-accent text-mono" id="autoreview-concurrency-value">5</span>
           </label>
@@ -221,14 +232,6 @@
           <span class="checkbox-label">멘션 알림</span>
         </label>
         <span class="field-hint">MR/PR 댓글에 내가 @멘션되면 알림.</span>
-      </div>
-
-      <div class="field">
-        <label class="checkbox-row">
-          <input id="auto-review-enabled" type="checkbox">
-          <span class="checkbox-label">새 MR/PR 자동 AI 리뷰</span>
-        </label>
-        <span class="field-hint">새 MR/PR 또는 리뷰어 지정 감지 시 백그라운드에서 AI 리뷰를 실행해 저장합니다. 리뷰 창을 열면 결과가 바로 표시됩니다.</span>
       </div>
 
       <div class="field">

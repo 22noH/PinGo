@@ -38,6 +38,7 @@ export class ClaudeCLIProvider implements AIProvider {
     onChunk: (text: string) => void,
     onDone: () => void,
     onError: (err: Error) => void,
+    cwd?: string,
   ): AIStreamHandle {
     const execPath = resolveCliExecPath('claude', this.config.execPath);
     const useShell = needsShell(execPath);
@@ -49,13 +50,14 @@ export class ClaudeCLIProvider implements AIProvider {
     if (effort) args.push('--effort', effort);
     log.info(
       `claude-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''} ` +
-      `model=${model || '(default)'} effort=${effort || '(default)'}`,
+      `model=${model || '(default)'} effort=${effort || '(default)'}` +
+      `${cwd ? ` cwd=${cwd}` : ''}`,
     );
 
     const proc = spawn(
       execPath,
       args,
-      { stdio: ['pipe', 'pipe', 'pipe'], shell: useShell },
+      { stdio: ['pipe', 'pipe', 'pipe'], shell: useShell, cwd },
     );
 
     let aborted = false;
