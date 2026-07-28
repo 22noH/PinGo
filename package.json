@@ -10,7 +10,7 @@
     "dev": "npm run build && npm run generate-icons && electron . --dev",
     "generate-icons": "node scripts/generate-icons.js",
     "dist": "npm run build && electron-builder --win nsis",
-    "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\""
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
   },
   "keywords": [
     "electron",

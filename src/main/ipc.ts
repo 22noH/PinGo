@@ -74,7 +74,9 @@ export interface IpcDeps {
   refreshJiraBridge: () => void;
 }
 
-let currentRun: RunHandle | null = null;
+// 실행 중인 리뷰 — item.id 별로 보관. 전역 1개로 두면 탭2에서 리뷰를 시작할 때
+// 탭1의 리뷰가 조용히 abort 되어 그 탭이 영원히 로딩 상태로 남는다(20260728 버그 리포트).
+const runs = new Map<string, RunHandle>();
 
 async function handleCommentPost(
   deps: IpcDeps,
@@ -147,6 +149,8 @@ async function handleCommentReply(
 export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.on(REVIEW_START, (_e, payload: ReviewStartPayload) => {
     void (async (): Promise<void> => {
+      const itemId = payload.item.id;
+      // 같은 MR 을 다시 리뷰하는 경우에만 이전 실행을 중단 — 다른 탭 것은 건드리지 않는다
       const next = await runReviewStart(
         {
           store: deps.store,
@@ -154,17 +158,23 @@ export function registerIpcHandlers(deps: IpcDeps): void {
           recordInteraction: deps.recordInteraction,
         },
         payload,
-        currentRun,
+        runs.get(itemId) ?? null,
       );
-      currentRun = next;
+      if (next) runs.set(itemId, next);
+      else runs.delete(itemId);
     })();
   });
 
-  ipcMain.on(REVIEW_ABORT, () => {
-    if (currentRun) {
-      currentRun.abort();
-      currentRun = null;
-      log.info('ipc: review aborted by renderer');
+  ipcMain.on(REVIEW_ABORT, (_e, itemId: unknown) => {
+    if (typeof itemId !== 'string') {
+      log.warn('ipc: abortReview — itemId 누락, 무시');
+      return;
+    }
+    const run = runs.get(itemId);
+    if (run) {
+      run.abort();
+      runs.delete(itemId);
+      log.info(`ipc: review aborted by renderer item=${itemId}`);
     }
   });
 
@@ -327,8 +337,6 @@ export function unregisterIpcHandlers(): void {
   unregisterJiraHandlers();
   unregisterBranchHandlers();
   unregisterSettingsHandlers();
-  if (currentRun) {
-    currentRun.abort();
-    currentRun = null;
-  }
+  for (const run of runs.values()) run.abort();
+  runs.clear();
 }

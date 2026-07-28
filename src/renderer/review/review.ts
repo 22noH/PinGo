@@ -7,12 +7,16 @@ import type {
   ItemChange,
   ReviewState,
   ReviewChunkPayload,
+  ReviewDonePayload,
   ReviewErrorPayload,
 } from '../../shared/types';
-import { initMarked } from './review-markdown';
+import { initMarked, renderPartial } from './review-markdown';
 import { StreamController, type StreamView } from './review-stream';
 import { openDiffModal } from './review-diff-modal';
-import { initTabs, addOrActivate, getActive, updateActive, closeById, getTabCount } from './review-tabs';
+import {
+  initTabs, addOrActivate, getActive, getById, isActive, updateActive,
+  closeById, getTabCount, renderBar,
+} from './review-tabs';
 import type { ReviewTab } from './review-tabs';
 import { initReviewActions } from './review-actions';
 import { renderDiscussions } from './review-discussions';
@@ -79,21 +83,30 @@ initTabs(
     if (!tab.id) { applyHeader(null); setReviewState('idle'); return; }
     restoreTab(tab);
   },
+  // 탭을 떠날 때 현재 화면을 그 탭에 저장 (스트리밍 원문 포함)
+  (leaving) => saveTab(leaving),
 );
 
+/** 현재 화면 상태를 지정한 탭에 저장. 탭 전환/새 아이템 수신 직전에 호출. */
+function saveTab(tab: ReviewTab): void {
+  tab.state = reviewState;
+  tab.savedHtml = markdownEl.innerHTML;
+  tab.fileHtml = fileList.innerHTML;
+  tab.fileCount = fileCount.textContent ?? '0';
+  tab.errorMsg = errorMsg.textContent ?? '';
+  tab.buffer = stream.getFullText();
+}
+
 function saveCurrentTab(): void {
-  updateActive({
-    state: reviewState,
-    savedHtml: markdownEl.innerHTML,
-    fileHtml: fileList.innerHTML,
-    fileCount: fileCount.textContent ?? '0',
-    errorMsg: errorMsg.textContent ?? '',
-  });
+  const tab = getActive();
+  if (tab) saveTab(tab);
 }
 
 function restoreTab(tab: ReviewTab): void {
   applyHeader(tab.item);
   setReviewState(tab.state);
+  // 스트림 버퍼도 탭 것으로 교체 — 안 하면 이전 탭 원문에 이어붙어 섞인다
+  stream.setFullText(tab.buffer);
   markdownEl.innerHTML = tab.savedHtml;
   // innerHTML 복원은 click 핸들러가 날아가므로 ItemChange[]가 있으면 재렌더
   const changes = tabChanges.get(tab.id);
@@ -131,10 +144,24 @@ function setReviewState(next: ReviewState): void {
 
 // ── IPC 구독 ─────────────────────────────────────────────────
 window.electronAPI.onItemNew((it: AnyItem): void => {
-  saveCurrentTab();
-  const tab = addOrActivate(it);
   if (hasChanges(it)) {
-    tabChanges.set(tab.id, it.changes);
+    // 리뷰 파이프라인이 보낸 변경 파일 — 해당 탭에만 반영하고 활성 탭은 건드리지 않는다.
+    // (여기서 탭을 강제 활성화하면 다른 탭을 보던 사용자의 화면을 빼앗는다)
+    const target = getById(it.id);
+    if (!target) return;
+    tabChanges.set(target.id, it.changes);
+    target.item = it;
+    if (!isActive(target.id)) {
+      // 비활성 탭: DOM 대신 탭 상태만 갱신 — 활성화 시 restoreTab 이 그린다
+      target.fileCount = String(it.changes.length);
+      if (target.state === 'loading') {
+        target.savedHtml =
+          '<div class="row text-secondary"><span class="spinner"></span>' +
+          `<span>파일 ${it.changes.length}개 분석 완료. AI 응답 대기 중…</span></div>`;
+      }
+      renderBar();
+      return;
+    }
     stream.setFileList(it.changes);
     updateActive({ fileHtml: fileList.innerHTML, fileCount: fileCount.textContent ?? '0' });
     // discussions 가 있으면 답글 UI 렌더 (없으면 섹션 숨김)
@@ -151,7 +178,14 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
         '<div class="row text-secondary"><span class="spinner"></span>' +
         `<span>파일 ${it.changes.length}개 분석 완료. AI 응답 대기 중…</span></div>`;
     }
-  } else {
+    if (reviewState === 'idle' || reviewState === 'done') void restoreCachedReview(it);
+    return;
+  }
+
+  // summary — 트레이/토스트/대시보드에서 MR 열기. 이 경로만 탭을 활성화한다.
+  saveCurrentTab();
+  const tab = addOrActivate(it);
+  {
     // summary만 들어온 경우 = 트레이/토스트/대시보드에서 MR 열기. 이전 세션의 error/done 상태가
     // 남아있으면 리셋(진행 중인 스트리밍은 보존).
     if (tab.state === 'error' || tab.state === 'done') {
@@ -173,7 +207,18 @@ window.electronAPI.onItemNew((it: AnyItem): void => {
   }
 });
 
-window.electronAPI.onReviewChunk(({ chunk }: ReviewChunkPayload): void => {
+window.electronAPI.onReviewChunk(({ itemId, chunk }: ReviewChunkPayload): void => {
+  const tab = getById(itemId);
+  if (!tab) return; // 탭이 이미 닫힘 — 버릴 청크
+  if (!isActive(itemId)) {
+    // 비활성 탭: DOM 을 건드리지 않고 그 탭 버퍼에만 쌓는다
+    tab.buffer += chunk;
+    if (tab.state !== 'streaming') {
+      tab.state = 'streaming';
+      renderBar();
+    }
+    return;
+  }
   if (reviewState === 'loading') {
     stream.reset();
     setReviewState('streaming');
@@ -181,19 +226,32 @@ window.electronAPI.onReviewChunk(({ chunk }: ReviewChunkPayload): void => {
   stream.append(chunk);
 });
 
-window.electronAPI.onReviewDone((): void => {
-  stream.finalize();
-  setReviewState('done');
-  updateActive({ state: 'done', savedHtml: markdownEl.innerHTML });
-  // 완료된 리뷰를 영구 캐시에 저장 — 창을 닫았다가 다시 열어도 복원 가능.
-  const tab = getActive();
-  const text = stream.getFullText();
-  if (tab?.item && text.trim().length > 0) {
-    window.electronAPI.saveReviewCache(tab.item.id, text);
+window.electronAPI.onReviewDone(({ itemId }: ReviewDonePayload): void => {
+  const tab = getById(itemId);
+  if (!tab) return;
+  const text = isActive(itemId) ? stream.getFullText() : tab.buffer;
+  if (isActive(itemId)) {
+    stream.finalize();
+    setReviewState('done');
+    updateActive({ state: 'done', savedHtml: markdownEl.innerHTML });
+  } else {
+    tab.state = 'done';
+    tab.savedHtml = renderPartial(tab.buffer);
+    renderBar();
   }
+  // 완료된 리뷰를 영구 캐시에 저장 — 창을 닫았다가 다시 열어도 복원 가능.
+  if (text.trim().length > 0) window.electronAPI.saveReviewCache(itemId, text);
 });
 
-window.electronAPI.onReviewError(({ message }: ReviewErrorPayload): void => {
+window.electronAPI.onReviewError(({ itemId, message }: ReviewErrorPayload): void => {
+  const tab = getById(itemId);
+  if (!tab) return;
+  if (!isActive(itemId)) {
+    tab.state = 'error';
+    tab.errorMsg = message;
+    renderBar();
+    return;
+  }
   stream.finalize();
   errorMsg.textContent = message;
   errorBox.hidden = false;
@@ -209,6 +267,10 @@ function startReview(): void {
   stream.reset();
   stream.renderWaitingForChanges();
   setReviewState('loading');
+  // 탭에도 기록 — 다른 탭으로 갔다 돌아와도 로딩 중이었음이 유지된다
+  tab.state = 'loading';
+  tab.buffer = '';
+  renderBar();
   const summary: ReviewItemSummary = hasChanges(tab.item)
     ? stripChanges(tab.item)
     : tab.item;
@@ -244,9 +306,12 @@ btnReview.addEventListener('click', startReview);
 btnRetry.addEventListener('click', startReview);
 
 btnAbort.addEventListener('click', () => {
-  window.electronAPI.abortReview();
+  const tab = getActive();
+  if (!tab) return;
+  window.electronAPI.abortReview(tab.id);
   setReviewState('idle');
   updateActive({ state: 'idle' });
+  renderBar();
 });
 
 btnComment.addEventListener('click', () => { void postComment(); });

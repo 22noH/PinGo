@@ -5,6 +5,7 @@ import type Store from 'electron-store';
 import type {
   AppSettings,
   ReviewChunkPayload,
+  ReviewDonePayload,
   ReviewErrorPayload,
   ReviewItemSummary,
   ReviewStartPayload,
@@ -65,6 +66,7 @@ export async function runReviewStart(
   const gitProvider = findProvider(settings, item);
   if (!gitProvider) {
     const err: ReviewErrorPayload = {
+      itemId: item.id,
       message: `연결을 찾을 수 없습니다 (gitConfigId=${item.gitConfigId})`,
     };
     sendToReview(win, REVIEW_ERROR, err);
@@ -91,22 +93,22 @@ export async function runReviewStart(
       aiProvider,
       prompt,
       (chunk: string): void => {
-        const p: ReviewChunkPayload = { chunk };
+        const p: ReviewChunkPayload = { itemId: item.id, chunk };
         sendToReview(win, REVIEW_CHUNK, p);
       },
       (): void => {
         ctx.recordInteraction(item.id, 'reviewed');
-        sendToReview(win, REVIEW_DONE);
+        sendToReview(win, REVIEW_DONE, { itemId: item.id } satisfies ReviewDonePayload);
       },
       (err: Error): void => {
-        const p: ReviewErrorPayload = { message: err.message };
+        const p: ReviewErrorPayload = { itemId: item.id, message: err.message };
         sendToReview(win, REVIEW_ERROR, p);
       },
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(`ipc-review: review start failed: ${msg}`);
-    sendToReview(win, REVIEW_ERROR, { message: msg } satisfies ReviewErrorPayload);
+    sendToReview(win, REVIEW_ERROR, { itemId: item.id, message: msg } satisfies ReviewErrorPayload);
   }
   return current;
 }

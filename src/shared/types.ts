@@ -302,11 +302,19 @@ export interface ReviewStartPayload {
   item: ReviewItemSummary; // 리뷰 시작 시 summary 전달 → main에서 changes fetch
 }
 
+// 아래 세 payload 의 itemId 는 "어느 탭의 리뷰인지" 를 가리킨다. 없으면 렌더러가
+// 활성 탭으로 흘려보내 다른 MR 의 리뷰가 엉뚱한 탭에 찍힌다(20260728 버그 리포트).
 export interface ReviewChunkPayload {
+  itemId: string;
   chunk: string;
 }
 
+export interface ReviewDonePayload {
+  itemId: string;
+}
+
 export interface ReviewErrorPayload {
+  itemId: string;
   message: string;
 }
 

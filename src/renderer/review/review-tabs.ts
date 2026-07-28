@@ -11,20 +11,27 @@ export interface ReviewTab {
   fileHtml: string;
   fileCount: string;
   errorMsg: string;
+  /** 이 탭의 AI 리뷰 원문 — 비활성 탭에서도 스트리밍이 계속 쌓인다 */
+  buffer: string;
 }
 
 type TabChangeCallback = (tab: ReviewTab) => void;
 let tabs: ReviewTab[] = [];
 let activeId: string | null = null;
 let onActivate: TabChangeCallback = () => undefined;
+let onDeactivate: TabChangeCallback = () => undefined;
 let tabBarEl: HTMLElement | null = null;
 
 export function initTabs(
   barEl: HTMLElement,
   cb: TabChangeCallback,
+  onLeave: TabChangeCallback,
 ): void {
   tabBarEl = barEl;
   onActivate = cb;
+  // 탭을 떠나기 직전에 화면 상태를 그 탭에 저장 — 없으면 진행 중이던 리뷰의
+  // 상태가 통째로 날아가 돌아왔을 때 로딩 스피너에 멈춰 있다
+  onDeactivate = onLeave;
   // Main 프로세스가 커서가 창 밖으로 나갔음을 알릴 때 해당 탭 분리
   window.electronAPI.onTabDragDetach((tabId: string) => {
     closeById(tabId); // 마지막 탭이면 window.close() 까지 처리됨
@@ -40,7 +47,7 @@ export function addOrActivate(item: AnyItem): ReviewTab {
   }
   const tab: ReviewTab = {
     id: item.id, item, state: 'idle',
-    savedHtml: '', fileHtml: '', fileCount: '0', errorMsg: '',
+    savedHtml: '', fileHtml: '', fileCount: '0', errorMsg: '', buffer: '',
   };
   tabs.push(tab);
   activateById(tab.id);
@@ -60,9 +67,22 @@ export function updateActive(patch: Partial<Omit<ReviewTab, 'id' | 'item'>>): vo
 export function activateById(id: string): void {
   const tab = tabs.find((t) => t.id === id);
   if (!tab) return;
+  if (activeId !== null && activeId !== id) {
+    const leaving = tabs.find((t) => t.id === activeId);
+    if (leaving) onDeactivate(leaving);
+  }
   activeId = id;
   renderBar();
   onActivate(tab);
+}
+
+/** id 로 탭 조회 — IPC 이벤트를 활성 탭이 아니라 해당 탭으로 보내기 위함 */
+export function getById(id: string): ReviewTab | null {
+  return tabs.find((t) => t.id === id) ?? null;
+}
+
+export function isActive(id: string): boolean {
+  return activeId === id;
 }
 
 export function closeById(id: string): void {
@@ -96,7 +116,8 @@ export function renderBar(): void {
     const labelSpan = document.createElement('span');
     labelSpan.className = 'review-tab-label';
     const prefix = tab.item?.providerType === 'github' ? 'PR' : 'MR';
-    labelSpan.textContent = `${prefix} #${tab.item?.itemId ?? '—'}`;
+    // 비활성 탭에서도 리뷰가 도니 상태를 라벨에 표시 — 글리프라 별도 CSS 불필요
+    labelSpan.textContent = `${prefix} #${tab.item?.itemId ?? '—'}${stateGlyph(tab.state)}`;
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'review-tab-close';
@@ -181,3 +202,13 @@ function createGhost(src: HTMLButtonElement, x: number, y: number): HTMLElement 
 }
 
 export function getTabCount(): number { return tabs.length; }
+
+function stateGlyph(state: ReviewState): string {
+  switch (state) {
+    case 'loading':
+    case 'streaming': return ' …';
+    case 'done': return ' ✓';
+    case 'error': return ' !';
+    default: return '';
+  }
+}

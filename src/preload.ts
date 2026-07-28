@@ -9,6 +9,7 @@ import type {
   SettingsSavePayload,
   SettingsLoadResult,
   ReviewChunkPayload,
+  ReviewDonePayload,
   ReviewErrorPayload,
   ReviewItem,
   TrayStateChangedPayload,
@@ -98,7 +99,8 @@ import {
 export interface ElectronAPI {
   // ── Renderer → Main (fire-and-forget) ─────────────────────
   startReview: (payload: ReviewStartPayload) => void;
-  abortReview: () => void;
+  /** 중단할 리뷰의 item.id — 탭마다 리뷰가 따로 도므로 대상 지정이 필수 */
+  abortReview: (itemId: string) => void;
   openMrInBrowser: (webUrl: string) => void;
   toggleNotification: () => void;
   tabDragStart: (tabId: string, item: ReviewItem) => void;
@@ -129,7 +131,7 @@ export interface ElectronAPI {
 
   // ── Main → Renderer (이벤트 구독, 언서브스크라이브 함수 반환) ─
   onReviewChunk: (cb: (payload: ReviewChunkPayload) => void) => () => void;
-  onReviewDone: (cb: () => void) => () => void;
+  onReviewDone: (cb: (payload: ReviewDonePayload) => void) => () => void;
   onReviewError: (cb: (payload: ReviewErrorPayload) => void) => () => void;
   /**
    * ITEM_NEW는 두 번 수신될 수 있음:
@@ -198,8 +200,8 @@ const api: ElectronAPI = {
   startReview: (payload: ReviewStartPayload): void => {
     ipcRenderer.send(REVIEW_START, payload);
   },
-  abortReview: (): void => {
-    ipcRenderer.send(REVIEW_ABORT);
+  abortReview: (itemId: string): void => {
+    ipcRenderer.send(REVIEW_ABORT, itemId);
   },
   openMrInBrowser: (webUrl: string): void => {
     ipcRenderer.send(WINDOW_OPEN_MR, webUrl);
@@ -261,8 +263,8 @@ const api: ElectronAPI = {
     };
   },
 
-  onReviewDone: (cb: () => void): (() => void) => {
-    const handler = (): void => cb();
+  onReviewDone: (cb: (payload: ReviewDonePayload) => void): (() => void) => {
+    const handler = (_: IpcRendererEvent, payload: ReviewDonePayload): void => cb(payload);
     ipcRenderer.on(REVIEW_DONE, handler);
     return (): void => {
       ipcRenderer.removeListener(REVIEW_DONE, handler);
