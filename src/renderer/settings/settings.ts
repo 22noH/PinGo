@@ -38,6 +38,27 @@ const autoReviewInput = $<HTMLInputElement>('auto-review-enabled');
 const startupInput    = $<HTMLInputElement>('launch-on-startup');
 const hotkeyInput     = $<HTMLInputElement>('dashboard-hotkey');
 const mergeDirInput   = $<HTMLInputElement>('merge-work-dir');
+const pickDirBtn      = $<HTMLButtonElement>('btn-pick-work-dir');
+const workDirPreview  = $<HTMLElement>('work-dir-preview');
+
+/** 실제로 어디에 클론되는지 그대로 보여준다 — "돌고 있는지 모르겠다" 를 막기 위함 */
+function renderWorkDirPreview(): void {
+  const dir = mergeDirInput.value.trim();
+  workDirPreview.textContent = dir
+    ? `${dir.replace(/[\\/]+$/, '')}\\pingo-review\\MR-<번호>-<브랜치>`
+    : '%TEMP%\\pingo-review-xxxxxx (리뷰 후 삭제)';
+}
+
+mergeDirInput.addEventListener('input', renderWorkDirPreview);
+pickDirBtn.addEventListener('click', (): void => {
+  void (async (): Promise<void> => {
+    const picked = await window.electronAPI.pickFolder();
+    if (picked) {
+      mergeDirInput.value = picked;
+      renderWorkDirPreview();
+    }
+  })();
+});
 
 const saveBtn      = $<HTMLButtonElement>('btn-save');
 const cancelBtn    = $<HTMLButtonElement>('btn-cancel');
@@ -202,6 +223,7 @@ async function bootstrap(): Promise<void> {
     startupInput.checked = settings.launchOnStartup ?? false;
     hotkeyInput.value    = settings.dashboardHotkey ?? 'CommandOrControl+Shift+D';
     mergeDirInput.value  = settings.mergeWorkDir ?? '';
+    renderWorkDirPreview();
     const concurrency = settings.autoReviewConcurrency ?? DEFAULT_AUTO_REVIEW_CONCURRENCY;
     autoreviewInput.value = String(concurrency);
     autoreviewValue.textContent = String(concurrency);

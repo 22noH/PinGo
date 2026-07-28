@@ -31,6 +31,8 @@ interface TrayHandlers {
   onInstallUpdate: () => void;
   onCheckUpdate: () => void;
   onOpenReleaseNotes: (version: string | null) => void;
+  /** 자동 리뷰 진행 현황 — 메뉴에 표시 */
+  getAutoReviewStatus: () => { active: number; queued: number };
   onQuit: () => void;
 }
 
@@ -144,6 +146,14 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
       label: statusLabel(state, lastCheckedAt, health),
       enabled: false,
     });
+    // 자동 리뷰는 백그라운드라 아무 표시가 없으면 "동작을 안 한다" 로 보인다 — 진행 상황 노출
+    const ar = handlers.getAutoReviewStatus();
+    if (ar.active > 0 || ar.queued > 0) {
+      items.push({
+        label: `🧠 자동 리뷰 ${ar.active}건 진행 중${ar.queued > 0 ? ` (대기 ${ar.queued})` : ''}`,
+        enabled: false,
+      });
+    }
     items.push({ type: 'separator' });
 
     const toggleLabel = state === 'MUTED' ? '🔕 알림 꺼짐' : '🔔 알림 켜짐';

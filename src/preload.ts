@@ -85,6 +85,7 @@ import {
   PROJECT_LIST,
   REVIEW_CACHE_LOAD,
   REVIEW_CACHE_SAVE,
+  FOLDER_PICK,
   PROJECT_FILTERS_LOAD,
   PROJECT_FILTERS_SAVE,
   PIPELINE_RUN,
@@ -156,6 +157,8 @@ export interface ElectronAPI {
   loadReviewCache: (itemId: string) => Promise<{ markdown: string; updatedAt: string } | null>;
   /** headSha: 이 리뷰가 어느 커밋 기준인지 — 빠지면 그 MR 은 자동 재리뷰 판단이 불가해진다 */
   saveReviewCache: (itemId: string, markdown: string, headSha?: string) => void;
+  /** 폴더 선택 다이얼로그 — 취소하면 null */
+  pickFolder: () => Promise<string | null>;
 
   // ── v3 신규 — Jira ─────────────────────────────────────
   loadJiraConnections: () => Promise<JiraConnectionsLoadResult>;
@@ -355,6 +358,8 @@ const api: ElectronAPI = {
   saveReviewCache: (itemId: string, markdown: string, headSha?: string): void => {
     ipcRenderer.send(REVIEW_CACHE_SAVE, { itemId, markdown, headSha });
   },
+
+  pickFolder: (): Promise<string | null> => ipcRenderer.invoke(FOLDER_PICK) as Promise<string | null>,
 
   // ── v3 — 댓글 답글 ────────────────────────────────────
   postCommentReply: (payload: CommentReplyPayload): Promise<CommentReplyResult> =>

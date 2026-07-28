@@ -105,6 +105,8 @@ export const LIST_OPEN_REVIEW = 'list:open-review' as const;
 export const LIST_UPDATED = 'list:updated' as const;
 /** 목록 윈도우 → main: 즉시 폴링 요청 */
 export const LIST_REFRESH = 'list:refresh' as const;
+/** 설정창 → main: 폴더 선택 다이얼로그 (자동 리뷰 클론 위치) */
+export const FOLDER_PICK = 'folder:pick' as const;
 
 // ── 채널명 타입 유니온 ──────────────────────────────────────
 export type MainToRendererChannel =

@@ -44,14 +44,18 @@ function isMyItem(cfg: GitConfig, item: ReviewItemSummary): boolean {
 async function cloneBranch(
   payload: AutoReviewPayload,
 ): Promise<{ dir: string; cleanup: () => Promise<void> } | null> {
-  const { item, cfg } = payload;
+  const { item, cfg, store } = payload;
   const provider = createGitProvider(cfg);
   if (!provider.fetchRepoCloneUrl) return null;
   try {
     const u = new URL(await provider.fetchRepoCloneUrl(item));
     u.username = 'oauth2';
     u.password = cfg.token;
-    const wt = await createReviewWorktree(u.toString(), item.sourceBranch);
+    // 작업 폴더가 설정돼 있으면 거기에 클론 — 진행 상황을 눈으로 확인할 수 있게
+    const workDir = store.get('settings').mergeWorkDir;
+    const label = `${item.providerType === 'gitlab' ? 'MR' : 'PR'}-${item.itemId}-${item.sourceBranch}`;
+    log.info(`auto-review: clone 시작 ${item.id} → ${workDir ? `${workDir}\\pingo-review` : '(임시 폴더)'}`);
+    const wt = await createReviewWorktree(u.toString(), item.sourceBranch, workDir, label);
     log.info(`auto-review: cloned ${item.id} → ${wt.dir}`);
     return wt;
   } catch (err) {
@@ -151,6 +155,14 @@ function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReview
     },
   );
   return orchestrator;
+}
+
+/** 트레이 메뉴 표시용 — 지금 몇 건이 돌고 몇 건이 대기 중인지 */
+export function getAutoReviewStatus(): { active: number; queued: number } {
+  return {
+    active: orchestrator?.activeCount ?? 0,
+    queued: orchestrator?.queuedCount ?? 0,
+  };
 }
 
 /**

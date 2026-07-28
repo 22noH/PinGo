@@ -1,5 +1,5 @@
 // main/ipc.ts — IPC 핸들러 등록 (v2 + v3 루트) — settings/AI/Git 은 ipc-settings 로 분리.
-import { BrowserWindow, ipcMain, screen, shell } from 'electron';
+import { BrowserWindow, dialog, ipcMain, screen, shell } from 'electron';
 import log from 'electron-log';
 import type Store from 'electron-store';
 import type {
@@ -26,6 +26,7 @@ import {
   LIST_LOAD,
   LIST_OPEN_REVIEW,
   LIST_REFRESH,
+  FOLDER_PICK,
   PROJECT_FILTERS_LOAD,
   PROJECT_FILTERS_SAVE,
   TAB_DRAG_START,
@@ -198,6 +199,14 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.openReviewById(itemId);
   });
 
+  ipcMain.handle(FOLDER_PICK, async (): Promise<string | null> => {
+    const res = await dialog.showOpenDialog({
+      title: '자동 리뷰가 저장소를 클론할 폴더 선택',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return res.canceled ? null : (res.filePaths[0] ?? null);
+  });
+
   ipcMain.on(LIST_REFRESH, (_e, kind: unknown) => {
     const k = kind === 'mr' || kind === 'jira' || kind === 'all' ? kind : 'all';
     if (k === 'mr' || k === 'all') deps.refreshPoller();
@@ -341,6 +350,7 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeHandler(COMMENT_REPLY);
   ipcMain.removeHandler(PROJECT_FILTERS_LOAD);
   ipcMain.removeHandler(PROJECT_FILTERS_SAVE);
+  ipcMain.removeHandler(FOLDER_PICK);
   unregisterActionHandlers();
   unregisterJiraHandlers();
   unregisterBranchHandlers();

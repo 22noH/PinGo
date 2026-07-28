@@ -28,7 +28,7 @@ import { createPoller, PollerController, PollerSeenState } from './poller';
 import { detectV3ItemEvents } from './poller-events';
 import { createJiraBridge, JiraBridgeController } from './main-jira-bridge';
 import { sendMrNotification } from './notifier';
-import { maybeAutoReview, maybeReReview } from './auto-review';
+import { getAutoReviewStatus, maybeAutoReview, maybeReReview } from './auto-review';
 import type { JiraEvent, JiraIssueSummary } from '../shared/types';
 import { JIRA_ISSUE_NEW, LIST_JIRA_UPDATED } from '../shared/constants';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
@@ -429,6 +429,7 @@ function bootstrap(): void {
       // 대기 중 버전이 있으면 해당 태그로, 없으면 릴리스 목록으로
       void shell.openExternal(version ? `${RELEASES_URL}/tag/v${version}` : RELEASES_URL);
     },
+    getAutoReviewStatus,
     onQuit: (): void => {
       app.quit();
     },

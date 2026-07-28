@@ -11,7 +11,7 @@
 //   이후 fetch + checkout) 또는 변경 파일 주변만 sparse checkout. 클론 비용이 실제로 문제가
 //   될 때 도입.
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -37,15 +37,36 @@ function git(args: string[], cwd?: string): Promise<void> {
   });
 }
 
+/** 경로에 쓸 수 없는 문자 제거 — 브랜치명에 `/` 가 흔하다 */
+function safeName(s: string): string {
+  return s.replace(/[^\w.-]+/g, '-').slice(0, 60);
+}
+
 /**
- * 대상 브랜치를 격리된 임시 디렉터리에 클론한다.
+ * 대상 브랜치를 격리된 디렉터리에 클론한다.
  * @param cloneUrl 인증(토큰) 주입된 https clone URL — 토큰 주입은 호출측 책임.
  * @param branch   클론할 브랜치명 (source_branch).
+ * @param workDir  설정된 작업 폴더. 주면 `<workDir>/pingo-review/<라벨>` 에 클론해
+ *                 사용자가 진행 상황을 눈으로 볼 수 있다. 없으면 OS 임시 폴더.
+ * @param label    작업 폴더 사용 시 하위 폴더 이름 (예: `MR-273-feat-x`).
  */
-export async function createReviewWorktree(cloneUrl: string, branch: string): Promise<ReviewWorktree> {
+export async function createReviewWorktree(
+  cloneUrl: string,
+  branch: string,
+  workDir?: string,
+  label?: string,
+): Promise<ReviewWorktree> {
   if (!cloneUrl) throw new Error('cloneUrl 이 비어 있습니다');
   if (!branch) throw new Error('branch 가 비어 있습니다');
-  const dir = await mkdtemp(path.join(tmpdir(), 'pingo-review-'));
+  let dir: string;
+  if (workDir) {
+    dir = path.join(workDir, 'pingo-review', safeName(label ?? branch));
+    // 이전 실행이 남긴 폴더가 있으면 지우고 새로 — 중간에 죽은 클론이 남아 있을 수 있다
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    await mkdir(path.dirname(dir), { recursive: true });
+  } else {
+    dir = await mkdtemp(path.join(tmpdir(), 'pingo-review-'));
+  }
   try {
     await git(['clone', '--depth', '1', '--single-branch', '--branch', branch, cloneUrl, dir]);
   } catch (err) {
@@ -54,6 +75,10 @@ export async function createReviewWorktree(cloneUrl: string, branch: string): Pr
   }
   return {
     dir,
-    cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => undefined),
+    // 작업 폴더를 지정한 경우엔 지우지 않는다 — 사용자가 "지금 뭘 리뷰 중인지" 를
+    // 눈으로 확인하려고 지정한 폴더다. 다음 리뷰 때 같은 자리를 지우고 다시 클론한다.
+    cleanup: workDir
+      ? (): Promise<void> => Promise.resolve()
+      : (): Promise<void> => rm(dir, { recursive: true, force: true }).catch(() => undefined),
   };
 }
