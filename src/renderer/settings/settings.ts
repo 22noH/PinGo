@@ -39,6 +39,7 @@ const startupInput    = $<HTMLInputElement>('launch-on-startup');
 const hotkeyInput     = $<HTMLInputElement>('dashboard-hotkey');
 const mergeDirInput   = $<HTMLInputElement>('merge-work-dir');
 const pickDirBtn      = $<HTMLButtonElement>('btn-pick-work-dir');
+const scopeSelect     = $<HTMLSelectElement>('auto-review-scope');
 const workDirPreview  = $<HTMLElement>('work-dir-preview');
 
 /** 실제로 어디에 클론되는지 그대로 보여준다 — "돌고 있는지 모르겠다" 를 막기 위함 */
@@ -147,6 +148,7 @@ async function save(): Promise<void> {
       jiraWebhookPort: jira.webhookPort,
       projectFilters,
       autoReviewConcurrency: Number(autoreviewInput.value),
+      autoReviewScope: scopeSelect.value === 'all' ? 'all' : 'mine',
     };
     await window.electronAPI.saveSettings({ settings: merged });
     window.close();
@@ -220,6 +222,7 @@ async function bootstrap(): Promise<void> {
     notifInput.checked   = settings.notificationEnabled;
     commentNotifInput.checked = settings.commentNotificationsEnabled ?? true;
     autoReviewInput.checked = settings.autoReviewEnabled ?? false;
+    scopeSelect.value = settings.autoReviewScope === 'all' ? 'all' : 'mine';
     startupInput.checked = settings.launchOnStartup ?? false;
     hotkeyInput.value    = settings.dashboardHotkey ?? 'CommandOrControl+Shift+D';
     mergeDirInput.value  = settings.mergeWorkDir ?? '';

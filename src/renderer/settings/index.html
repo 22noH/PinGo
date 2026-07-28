@@ -170,6 +170,19 @@
         </div>
 
         <div class="field">
+          <label class="field-label" for="auto-review-scope">리뷰 대상</label>
+          <select id="auto-review-scope" class="select">
+            <option value="mine">내 담당만 — 내가 작성했거나 리뷰어로 지정된 MR/PR</option>
+            <option value="all">전체 — 열려 있는 MR/PR 전부</option>
+          </select>
+          <span class="field-hint">
+            <strong>전체</strong>로 두면 남의 MR/PR 에도 내 계정으로 AI 리뷰 댓글이 달립니다.
+            대상이 많으면 순서대로 처리되며, MR 하나당 클론+리뷰에 수 분씩 걸립니다.
+            프로젝트 필터 탭에서 대상 프로젝트를 좁혀서 쓰세요.
+          </span>
+        </div>
+
+        <div class="field">
           <label class="field-label" for="merge-work-dir">클론 폴더</label>
           <div class="row">
             <input id="merge-work-dir" type="text" class="input" autocomplete="off" spellcheck="false"

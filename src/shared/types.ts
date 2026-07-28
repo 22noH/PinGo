@@ -228,6 +228,13 @@ export interface AppSettings {
    * 설정 UI 티켓이 이 값을 연결한다. undefined 면 DEFAULT_AUTO_REVIEW_CONCURRENCY.
    */
   autoReviewConcurrency?: number;
+  /**
+   * 자동 리뷰 대상 범위.
+   *  - 'mine' (기본): 내가 작성자이거나 리뷰어로 지정된 MR/PR 만
+   *  - 'all': 폴링에 잡히는 열린 MR/PR 전부 (남의 MR 에도 내 계정으로 댓글이 달린다)
+   * 'all' 은 프로젝트 필터와 함께 쓰는 것을 전제로 한다.
+   */
+  autoReviewScope?: 'mine' | 'all';
 }
 
 // ── 폴러 이벤트 종류 (v2 3개 + v3 5개) ─────────────────────

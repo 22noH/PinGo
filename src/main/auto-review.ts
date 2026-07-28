@@ -30,7 +30,7 @@ function mask(s: string, secret: string): string {
   return secret ? s.split(secret).join('***') : s;
 }
 
-/** 내 담당(내가 작성자 or 리뷰어)인 경우만 자동리뷰 — GitLab은 scope=all 이라 팀 전체 MR이 잡히므로 필수 */
+/** 내 담당(내가 작성자 or 리뷰어)인지 */
 function isMyItem(cfg: GitConfig, item: ReviewItemSummary): boolean {
   if (item.viewerIsReviewer) return true;
   if (cfg.type === 'gitlab') return item.author.id === cfg.userId;
@@ -38,9 +38,36 @@ function isMyItem(cfg: GitConfig, item: ReviewItemSummary): boolean {
 }
 
 /**
+ * 이 MR/PR 이 자동 리뷰 대상인지 — 설정된 범위에 따라 판단.
+ * 기본은 내 담당만. GitLab 은 scope=all 로 폴링해 팀 전체 MR 이 잡히므로,
+ * 'all' 로 두면 남의 MR 에도 내 계정으로 AI 댓글이 달린다(의도된 동작).
+ */
+export function isReviewTarget(
+  scope: 'mine' | 'all' | undefined,
+  cfg: GitConfig,
+  item: ReviewItemSummary,
+): boolean {
+  if (scope === 'all') return true;
+  return isMyItem(cfg, item);
+}
+
+/**
  * 리뷰 대상 브랜치를 임시 디렉터리에 클론한다.
  * clone URL 조회를 지원하지 않는 provider(현재 GitHub)나 clone 실패 시 null — diff 만으로 리뷰 진행.
  */
+/**
+ * 작업 폴더 안에서 이 리뷰가 쓸 하위 폴더 이름.
+ *
+ * projectId 를 반드시 포함한다 — MR/PR 번호는 프로젝트마다 따로 매겨져서,
+ * 다른 프로젝트의 같은 번호·같은 브랜치명이 동시에 리뷰되면 같은 폴더를 놓고
+ * 두 클론이 겹친다(하나가 다른 하나를 rm 으로 날린다). 동시 실행은 MR 단위로만
+ * 막히므로(같은 item.id 재요청은 오케스트레이터가 무시) 이름으로 갈라야 한다.
+ */
+export function worktreeLabel(item: ReviewItemSummary): string {
+  const kind = item.providerType === 'gitlab' ? 'MR' : 'PR';
+  return `${kind}-${item.projectId}-${item.itemId}-${item.sourceBranch}`;
+}
+
 async function cloneBranch(
   payload: AutoReviewPayload,
 ): Promise<{ dir: string; cleanup: () => Promise<void> } | null> {
@@ -53,7 +80,7 @@ async function cloneBranch(
     u.password = cfg.token;
     // 작업 폴더가 설정돼 있으면 거기에 클론 — 진행 상황을 눈으로 확인할 수 있게
     const workDir = store.get('settings').mergeWorkDir;
-    const label = `${item.providerType === 'gitlab' ? 'MR' : 'PR'}-${item.itemId}-${item.sourceBranch}`;
+    const label = worktreeLabel(item);
     log.info(`auto-review: clone 시작 ${item.id} → ${workDir ? `${workDir}\\pingo-review` : '(임시 폴더)'}`);
     const wt = await createReviewWorktree(u.toString(), item.sourceBranch, workDir, label);
     log.info(`auto-review: cloned ${item.id} → ${wt.dir}`);
@@ -183,7 +210,7 @@ function submit(store: Store<StoreSchema>, item: ReviewItemSummary, why: string)
   const settings = store.get('settings');
   const cfg = settings.gitConnections.find((c) => c.id === item.gitConfigId);
   if (!cfg) return;
-  if (!isMyItem(cfg, item)) return;
+  if (!isReviewTarget(settings.autoReviewScope, cfg, item)) return;
 
   log.info(`auto-review: queue ${item.id} (${why}) ${item.title.slice(0, 60)}`);
   getOrchestrator(resolveAutoReviewConcurrency(settings)).submit({
@@ -200,13 +227,21 @@ export function maybeAutoReview(store: Store<StoreSchema>, item: ReviewItemSumma
 }
 
 /**
- * 폴링 tick 마다 열린 MR/PR 전체에 대해 호출 — 이미 리뷰한 것에 새 커밋이 들어왔으면 재리뷰.
- * 리뷰 이력이 없는 항목은 여기서 건드리지 않는다. 그러지 않으면 자동 리뷰를 켠 직후
- * 열려 있던 MR 전부에 댓글이 한꺼번에 달린다.
+ * 폴링 tick 마다 열린 MR/PR 전체에 대해 호출.
+ *  - 리뷰 이력 없음 → 첫 리뷰 (이벤트를 놓쳤거나, 자동 리뷰를 방금 켠 경우)
+ *  - 리뷰 이력 있음 → 새 커밋이 들어왔을 때만 재리뷰
+ *
+ * 범위 설정('mine'/'all')은 submit 안에서 걸린다. 'all' 이면 열려 있는 팀 MR 전부가
+ * 대상이 되므로 한 번에 많이 잡힐 수 있는데, 대기열이 동시 상한만큼만 유지되고
+ * 초과분은 다음 tick 에 다시 잡히므로 자연스럽게 나눠 처리된다.
  */
-export function maybeReReview(store: Store<StoreSchema>, item: ReviewItemSummary): void {
+export function maybeAutoReviewOnPoll(store: Store<StoreSchema>, item: ReviewItemSummary): void {
   if (store.get('settings').autoReviewEnabled !== true) return;
   const cached = (store.get('reviewCache') ?? {})[item.id];
+  if (!cached) {
+    submit(store, item, '첫 리뷰(폴링)');
+    return;
+  }
   if (!hasNewCommits(cached, item)) return;
-  submit(store, item, `새 커밋 ${cached?.headSha?.slice(0, 8)} → ${item.headSha?.slice(0, 8)}`);
+  submit(store, item, `새 커밋 ${cached.headSha?.slice(0, 8)} → ${item.headSha?.slice(0, 8)}`);
 }
