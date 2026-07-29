@@ -235,6 +235,12 @@ export interface AppSettings {
    * 'all' 은 프로젝트 필터와 함께 쓰는 것을 전제로 한다.
    */
   autoReviewScope?: 'mine' | 'all';
+  /**
+   * 프로젝트당 클론 슬롯 개수 (기본 DEFAULT_SLOTS_PER_PROJECT).
+   * 슬롯은 재사용된다 — 리뷰마다 브랜치만 체크아웃하므로 최초 1회만 클론 비용을 낸다.
+   * 슬롯 1개 = 저장소 사본 1개라 디스크 사용량이 개수에 비례한다.
+   */
+  autoReviewSlotsPerProject?: number;
 }
 
 // ── 폴러 이벤트 종류 (v2 3개 + v3 5개) ─────────────────────

@@ -183,6 +183,20 @@
         </div>
 
         <div class="field">
+          <label class="field-label" for="autoreview-slots">
+            프로젝트당 클론 슬롯 <span class="text-accent text-mono" id="autoreview-slots-value">2</span>개
+          </label>
+          <input id="autoreview-slots" class="slider" type="range" min="1" max="5" step="1" value="2">
+          <span class="field-hint">
+            저장소를 슬롯에 한 번만 클론해두고, 리뷰마다 브랜치만 체크아웃해 재사용합니다.
+            최초 1회는 수 분이 걸리지만 그 뒤로는 10초 안팎입니다.
+            <strong>슬롯 1개 = 저장소 사본 1개</strong>라 개수만큼 디스크를 씁니다
+            (예: 7GB 저장소 × 3슬롯 = 21GB). 같은 프로젝트 MR 이 슬롯 수보다 많이 동시에
+            잡히면 순서대로 기다립니다.
+          </span>
+        </div>
+
+        <div class="field">
           <label class="field-label" for="merge-work-dir">클론 폴더</label>
           <div class="row">
             <input id="merge-work-dir" type="text" class="input" autocomplete="off" spellcheck="false"
@@ -194,8 +208,9 @@
             <strong id="work-dir-preview" class="text-mono"></strong>
           </span>
           <span class="field-hint">
-            지정하면 클론이 남아 있어 진행 상황을 직접 확인할 수 있습니다(다음 리뷰 때 덮어씀).
-            비우면 임시 폴더에 받고 리뷰가 끝나는 즉시 삭제됩니다. AI 충돌 해결 머지도 이 폴더를 씁니다.
+            슬롯은 재사용을 위해 유지됩니다(리뷰가 끝나도 지우지 않음). 비워두면 임시 폴더를
+            쓰지만 마찬가지로 남습니다 — 디스크를 확인하려면 폴더를 지정해두는 편이 낫습니다.
+            AI 충돌 해결 머지도 이 폴더를 씁니다.
           </span>
         </div>
         <div class="field">

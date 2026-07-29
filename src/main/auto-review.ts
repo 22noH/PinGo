@@ -3,17 +3,22 @@
 // 흐름: 감지 → 오케스트레이터(동시성/대기열) → 브랜치 clone → AI 리뷰(cwd=클론 경로)
 //       → reviewCache 저장 → MR/PR 에 댓글 게시 → 클론 정리.
 // 리뷰 창을 열면 기존 캐시 복원 경로(REVIEW_CACHE_LOAD)로 결과가 그대로 표시된다.
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
 import { shell } from 'electron';
 import log from 'electron-log';
 import type Store from 'electron-store';
-import type { AIConfig, Discussion, GitConfig, ReviewItemSummary, StoreSchema } from '../shared/types';
+import type { AIConfig, AppSettings, Discussion, GitConfig, ReviewItemSummary, StoreSchema } from '../shared/types';
 import { AutoReviewOrchestrator, createAutoReviewOrchestrator, isResolved, resolveAutoReviewConcurrency, reviewableDiscussions } from './auto-review/orchestrator';
 import type { AutoReviewRequest } from './auto-review/orchestrator';
-import { createReviewWorktree } from './auto-review/worktree';
+import { prepareSlot } from './auto-review/worktree';
+import { leaseSlot, markBroken, markProvisioned, type SlotLease } from './auto-review/slot-pool';
 import { createAIProvider } from './providers/ai/ai-provider';
 import { createGitProvider } from './providers/git/git-provider';
 import { sendAutoReviewFailure } from './notifier';
 import { buildPrompt, runReview } from './review-runner';
+
+import { DEFAULT_SLOTS_PER_PROJECT } from '../shared/constants';
 
 const MAX_CACHED_REVIEW_CHARS = 200_000;
 const COMMENT_HEADER = '🤖 **Pingo 자동 AI 리뷰**';
@@ -55,49 +60,53 @@ export function isReviewTarget(
  * 리뷰 대상 브랜치를 임시 디렉터리에 클론한다.
  * clone URL 조회를 지원하지 않는 provider(현재 GitHub)나 clone 실패 시 null — diff 만으로 리뷰 진행.
  */
-/**
- * 작업 폴더 안에서 이 리뷰가 쓸 하위 폴더 이름.
- *
- * projectId 를 반드시 포함한다 — MR/PR 번호는 프로젝트마다 따로 매겨져서,
- * 다른 프로젝트의 같은 번호·같은 브랜치명이 동시에 리뷰되면 같은 폴더를 놓고
- * 두 클론이 겹친다(하나가 다른 하나를 rm 으로 날린다). 동시 실행은 MR 단위로만
- * 막히므로(같은 item.id 재요청은 오케스트레이터가 무시) 이름으로 갈라야 한다.
- */
-export function worktreeLabel(item: ReviewItemSummary): string {
-  const kind = item.providerType === 'gitlab' ? 'MR' : 'PR';
-  return `${kind}-${item.projectId}-${item.itemId}-${item.sourceBranch}`;
-}
-
-async function cloneBranch(
-  payload: AutoReviewPayload,
-): Promise<{ dir: string; cleanup: () => Promise<void> } | null> {
-  const { item, cfg, store } = payload;
-  const provider = createGitProvider(cfg);
-  if (!provider.fetchRepoCloneUrl) return null;
-  try {
-    const u = new URL(await provider.fetchRepoCloneUrl(item));
-    u.username = 'oauth2';
-    u.password = cfg.token;
-    // 작업 폴더가 설정돼 있으면 거기에 클론 — 진행 상황을 눈으로 확인할 수 있게
-    const workDir = store.get('settings').mergeWorkDir;
-    const label = worktreeLabel(item);
-    log.info(`auto-review: clone 시작 ${item.id} → ${workDir ? `${workDir}\\pingo-review` : '(임시 폴더)'}`);
-    const wt = await createReviewWorktree(
-      u.toString(), item.sourceBranch, workDir, label, item.targetBranch,
-    );
-    log.info(`auto-review: cloned ${item.id} → ${wt.dir}`);
-    return wt;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn(`auto-review: clone 실패 ${item.id} — diff 만으로 진행: ${mask(msg, cfg.token).slice(0, 200)}`);
-    return null;
-  }
-}
-
 /** 리뷰 결과 — 마크다운 + 리뷰 시점의 resolved 스레드 id (다음 재리뷰 판단 기준) */
 export interface ReviewOutcome {
   markdown: string;
   resolvedThreadIds: string[];
+}
+
+async function prepareWorkspace(
+  payload: AutoReviewPayload,
+): Promise<{ dir: string; release: () => void } | null> {
+  const { item, cfg, store } = payload;
+  const provider = createGitProvider(cfg);
+  if (!provider.fetchRepoCloneUrl) return null;
+
+  const settings = store.get('settings');
+  // 슬롯은 프로젝트 단위. gitConfigId 까지 넣어야 서버가 다른 같은 projectId 가 안 겹친다.
+  const key = `${cfg.id}-${item.projectId}`;
+  const base = settings.mergeWorkDir
+    ? path.join(settings.mergeWorkDir, 'pingo-review')
+    : path.join(tmpdir(), 'pingo-review');
+  const maxSlots = resolveSlotsPerProject(settings);
+
+  let lease: SlotLease | null = null;
+  try {
+    const u = new URL(await provider.fetchRepoCloneUrl(item));
+    u.username = 'oauth2';
+    u.password = cfg.token;
+
+    lease = await leaseSlot(key, base, maxSlots, path.sep);
+    log.info(
+      `auto-review: 슬롯 ${lease.fresh ? '신규 클론' : '재사용'} ${item.id} → ${lease.dir}`,
+    );
+    const t0 = Date.now();
+    await prepareSlot(lease.dir, lease.fresh, u.toString(), item.sourceBranch, item.targetBranch);
+    markProvisioned(key, lease.dir);
+    log.info(`auto-review: 작업 트리 준비 완료 ${item.id} (${Math.round((Date.now() - t0) / 1000)}s)`);
+    const dir = lease.dir;
+    const release = lease.release;
+    return { dir, release };
+  } catch (err) {
+    if (lease) {
+      markBroken(key, lease.dir); // 다음 대여 때 다시 클론하도록
+      lease.release();
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(`auto-review: 작업 트리 준비 실패 ${item.id} — diff 만으로 진행: ${mask(msg, cfg.token).slice(0, 200)}`);
+    return null;
+  }
 }
 
 /** 리뷰 1건 실행: clone → 변경/토론 수집 → AI. */
@@ -118,10 +127,10 @@ async function runOne(
   const resolvedThreadIds = resolvedIds(discussions);
 
   // clone 은 API 호출 뒤에 — 병렬로 돌리면 API 가 먼저 실패했을 때 클론 디렉터리가 미아가 된다
-  const worktree = await cloneBranch(req.payload);
+  const workspace = await prepareWorkspace(req.payload);
   try {
     if (signal.aborted) throw new Error('중단됨');
-    const prompt = buildPrompt(full, undefined, worktree !== null);
+    const prompt = buildPrompt(full, undefined, workspace !== null);
     let markdown = '';
     await new Promise<void>((resolve, reject) => {
       const handle = runReview(
@@ -130,7 +139,7 @@ async function runOne(
         (chunk: string): void => { markdown += chunk; },
         resolve,
         reject,
-        worktree?.dir,
+        workspace?.dir,
       );
       signal.addEventListener('abort', () => {
         handle.abort();
@@ -140,7 +149,8 @@ async function runOne(
     if (!markdown.trim()) throw new Error('빈 리뷰 결과');
     return { markdown, resolvedThreadIds };
   } finally {
-    await worktree?.cleanup();
+    // 슬롯은 지우지 않는다 — 재사용이 이 설계의 전부다. 반납만 한다.
+    workspace?.release();
   }
 }
 
@@ -203,6 +213,16 @@ function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReview
     },
   );
   return orchestrator;
+}
+
+/** 프로젝트당 슬롯 상한 — 미설정/비정상이면 기본값 */
+export function resolveSlotsPerProject(
+  settings: Pick<AppSettings, 'autoReviewSlotsPerProject'>,
+): number {
+  const n = settings.autoReviewSlotsPerProject;
+  return typeof n === 'number' && Number.isFinite(n) && n >= 1
+    ? Math.floor(n)
+    : DEFAULT_SLOTS_PER_PROJECT;
 }
 
 /** 트레이 메뉴 표시용 — 지금 몇 건이 돌고 몇 건이 대기 중인지 */

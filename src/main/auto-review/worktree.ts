@@ -1,26 +1,19 @@
-// main/auto-review/worktree.ts — 자동 리뷰용 격리 작업 트리(clone) 생성/정리
+// main/auto-review/worktree.ts — 자동 리뷰용 작업 트리 준비 (슬롯 clone / 재사용)
 //
-// 대상 브랜치를 임시 격리 디렉터리에 shallow single-branch 클론한다 = 격리된 작업 트리.
+// 프로젝트별 슬롯(slot-pool.ts 가 배정)에 클론해두고, 리뷰마다 브랜치만 갈아끼운다.
 //
-// ponytail: 리뷰마다 독립 클론으로 격리. 큰 저장소(oneguide, 2026-07 측정)에서 MR 1건당 ~300초.
-//   clone 옵션으로는 더 못 줄인다 — 같은 저장소/브랜치 실측:
-//     --depth 1 (현재) 301s / --filter=blob:none 343s / 둘 다 374s.
-//   partial clone 은 checkout 때 blob 을 되받아와 오히려 느리다(merge-resolver 가 blob:none 을
-//   쓰는 이유는 속도가 아니라 shallow 가 merge-base 를 깨뜨려서 — 리뷰에는 해당 없음).
-//   더 빠르게 하려면 옵션이 아니라 구조를 바꿔야 한다: 프로젝트별 영구 캐시 클론(최초 1회 clone,
-//   이후 fetch + checkout) 또는 변경 파일 주변만 sparse checkout. 클론 비용이 실제로 문제가
-//   될 때 도입.
+// 왜 이 구조인가 — oneguide 저장소(48,084 파일) 실측:
+//   MR 마다 새 클론      : 376~408초
+//   git worktree add     : 425초  (objects 는 공유해도 파일을 다시 다 펼침 → 이득 없음)
+//   슬롯 재사용(fetch+checkout): 8~17초, 같은 브랜치 재리뷰는 6.5초   ← 채택
+//   clone 옵션 만으로는 못 줄인다: --depth 1 301s / blob:none 343s / 둘 다 374s.
+//   비용의 거의 전부가 "48,084개 파일을 디스크에 펼치기" 라, 안 펼치는 게 유일한 답이다.
+//
+// ponytail: 슬롯 하나당 7.7GB(작업 트리 + pack 1.34GB). 개수는 설정으로 제한한다.
+//   디스크가 더 문제가 되면 변경 파일 주변만 sparse checkout 하는 쪽으로 간다.
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, rm } from 'node:fs/promises';
 import * as path from 'node:path';
-
-export interface ReviewWorktree {
-  /** 클론된 작업 트리 경로 */
-  dir: string;
-  /** 사용 후 정리 (실패해도 throw 하지 않음) */
-  cleanup: () => Promise<void>;
-}
 
 /**
  * git 실행. core.longpaths=true 필수 —
@@ -57,62 +50,61 @@ function tailError(stderr: string): string {
   return (meaningful.length > 0 ? meaningful.join(' | ') : stderr.trim()).slice(-400);
 }
 
-/** 경로에 쓸 수 없는 문자 제거 — 브랜치명에 `/` 가 흔하다 */
-function safeName(s: string): string {
-  return s.replace(/[^\w.-]+/g, '-').slice(0, 60);
-}
-
 /**
- * 대상 브랜치를 격리된 디렉터리에 클론한다.
- * @param cloneUrl 인증(토큰) 주입된 https clone URL — 토큰 주입은 호출측 책임.
- * @param branch   클론할 브랜치명 (source_branch).
- * @param workDir  설정된 작업 폴더. 주면 `<workDir>/pingo-review/<라벨>` 에 클론해
- *                 사용자가 진행 상황을 눈으로 볼 수 있다. 없으면 OS 임시 폴더.
- * @param label    작업 폴더 사용 시 하위 폴더 이름 (예: `MR-273-feat-x`).
+ * 리뷰용 작업 트리를 준비한다.
+ *
+ * 슬롯이 비어 있으면(fresh) 클론하고, 이미 클론된 슬롯이면 fetch + checkout 만 한다.
+ * 큰 저장소 실측(oneguide): 최초 클론 408초 vs 재사용 8~17초 — 재사용이 이 설계의 전부다.
+ *
+ * @param dir      슬롯 디렉터리 (slot-pool 이 배정)
+ * @param fresh    이 슬롯이 아직 클론되지 않았는지
+ * @param cloneUrl 인증(토큰) 주입된 https clone URL — 토큰 주입은 호출측 책임
+ * @param branch   리뷰할 브랜치 (source_branch)
+ * @param targetBranch diff 기준점 — origin/<target> 으로 받아둔다
  */
-export async function createReviewWorktree(
+export async function prepareSlot(
+  dir: string,
+  fresh: boolean,
   cloneUrl: string,
   branch: string,
-  workDir?: string,
-  label?: string,
   targetBranch?: string,
-): Promise<ReviewWorktree> {
+): Promise<void> {
   if (!cloneUrl) throw new Error('cloneUrl 이 비어 있습니다');
   if (!branch) throw new Error('branch 가 비어 있습니다');
-  let dir: string;
-  if (workDir) {
-    dir = path.join(workDir, 'pingo-review', safeName(label ?? branch));
-    // 이전 실행이 남긴 폴더가 있으면 지우고 새로 — 중간에 죽은 클론이 남아 있을 수 있다
+
+  // 클론된 적 없거나 중간에 깨진 슬롯이면 처음부터
+  if (fresh || !(await isGitRepo(dir))) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     await mkdir(path.dirname(dir), { recursive: true });
-  } else {
-    dir = await mkdtemp(path.join(tmpdir(), 'pingo-review-'));
-  }
-  try {
     // --depth 1 이 아니라 partial clone(blob:none) — 얕은 클론은 merge-base 가 없어
-    // `git diff origin/<target>...HEAD` 가 성립하지 않는다. AI 가 진짜 diff 를 뜨려면
-    // 히스토리가 필요하다. blob 은 필요할 때만 받으므로 전체 클론보다 가볍다.
-    await git(['clone', '--filter=blob:none', '--single-branch', '--branch', branch, cloneUrl, dir]);
-    // 클론된 저장소에도 남겨둔다 — AI 가 이 안에서 실행하는 git 명령에도 적용되도록
+    // `git diff origin/<target>...HEAD` 가 성립하지 않는다.
+    // --single-branch 도 쓰지 않는다: 이 슬롯은 이후 다른 브랜치로 갈아끼워 재사용한다.
+    await git(['clone', '--filter=blob:none', '--no-checkout', cloneUrl, dir]);
+    // AI 가 이 안에서 실행하는 git 에도 적용되도록 저장소 config 에 남긴다
     await git(['config', 'core.longpaths', 'true'], dir).catch(() => undefined);
-    if (targetBranch && targetBranch !== branch) {
-      // 타겟 브랜치를 origin/<target> 으로 가져와 diff 기준점을 만든다.
-      // 실패해도 리뷰는 진행 — 그 경우 AI 는 프롬프트의 diff 만 쓴다.
-      await git(
-        ['fetch', '--filter=blob:none', 'origin', `${targetBranch}:refs/remotes/origin/${targetBranch}`],
-        dir,
-      ).catch(() => undefined);
-    }
-  } catch (err) {
-    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
-    throw err;
   }
-  return {
-    dir,
-    // 작업 폴더를 지정한 경우엔 지우지 않는다 — 사용자가 "지금 뭘 리뷰 중인지" 를
-    // 눈으로 확인하려고 지정한 폴더다. 다음 리뷰 때 같은 자리를 지우고 다시 클론한다.
-    cleanup: workDir
-      ? (): Promise<void> => Promise.resolve()
-      : (): Promise<void> => rm(dir, { recursive: true, force: true }).catch(() => undefined),
-  };
+
+  await git(['fetch', '--filter=blob:none', 'origin', `${branch}:refs/remotes/origin/${branch}`], dir);
+  if (targetBranch && targetBranch !== branch) {
+    // diff 기준점. 실패해도 리뷰는 진행 — 그 경우 AI 는 프롬프트의 diff 만 쓴다.
+    await git(
+      ['fetch', '--filter=blob:none', 'origin', `${targetBranch}:refs/remotes/origin/${targetBranch}`],
+      dir,
+    ).catch(() => undefined);
+  }
+  // detach 로 체크아웃 — 로컬 브랜치를 만들면 다음 재사용 때 이름이 충돌한다.
+  // -f: 이전 리뷰가 남긴 변경(AI 가 건드렸을 수도)을 버리고 깨끗한 상태로 맞춘다.
+  await git(['checkout', '--detach', '-f', `origin/${branch}`], dir);
+  // 추적되지 않는 잔여 파일 제거 — 이전 브랜치의 산출물이 리뷰에 섞이지 않게
+  await git(['clean', '-ffdx'], dir).catch(() => undefined);
+}
+
+/** 이미 유효한 git 저장소인지 */
+async function isGitRepo(dir: string): Promise<boolean> {
+  try {
+    await git(['rev-parse', '--git-dir'], dir);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -32,10 +32,7 @@ test('resolved 가 undefined 인 일반 코멘트는 해결로 치지 않는다'
   assert.deepEqual(resolvedIds([thread('x', undefined)]), []);
 });
 
-// ── 클론 폴더 이름 충돌 ─────────────────────────────────────
-// 동시 리뷰 상한이 5 라 최대 5개가 같은 작업 폴더 안에서 병렬로 클론된다.
-// MR 번호는 프로젝트마다 따로 매겨지므로 번호만으로는 갈리지 않는다.
-import { worktreeLabel } from '../main/auto-review';
+// ── 리뷰 대상 범위 ─────────────────────────────────────────
 import type { ReviewItemSummary } from '../shared/types';
 
 const item = (projectId: number, itemId: number, branch: string): ReviewItemSummary => ({
@@ -47,23 +44,6 @@ const item = (projectId: number, itemId: number, branch: string): ReviewItemSumm
   sourceBranch: branch, targetBranch: 'main', projectId,
   createdAt: '', updatedAt: '',
 });
-
-test('다른 프로젝트의 같은 MR 번호·같은 브랜치는 다른 폴더를 쓴다', () => {
-  const a = worktreeLabel(item(38, 42, 'feature/x'));
-  const b = worktreeLabel(item(99, 42, 'feature/x'));
-  assert.notEqual(a, b, '같으면 동시 클론이 서로를 덮어쓴다');
-});
-
-test('같은 MR 은 같은 폴더 — 재리뷰 시 덮어쓰기', () => {
-  assert.equal(worktreeLabel(item(38, 42, 'feature/x')), worktreeLabel(item(38, 42, 'feature/x')));
-});
-
-test('동시 5건은 서로 다른 폴더', () => {
-  const labels = [101, 102, 103, 104, 105].map((n) => worktreeLabel(item(38, n, 'feat/a')));
-  assert.equal(new Set(labels).size, 5);
-});
-
-// ── 리뷰 대상 범위 ─────────────────────────────────────────
 import { isReviewTarget } from '../main/auto-review';
 import type { GitLabConfig } from '../shared/types';
 

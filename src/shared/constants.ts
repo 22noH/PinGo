@@ -162,6 +162,13 @@ export const DEFAULT_DASHBOARD_HOTKEY = 'CommandOrControl+Shift+D';
 export const MIN_POLL_INTERVAL_MS = 10_000;
 /** 자동 리뷰 동시 실행 기본 상한 (AppSettings.autoReviewConcurrency 미설정 시). */
 export const DEFAULT_AUTO_REVIEW_CONCURRENCY = 5;
+/**
+ * 프로젝트당 클론 슬롯 기본 개수.
+ * 슬롯 하나 = 저장소 사본 하나(oneguide 기준 7.7GB)라 디스크를 크게 먹는다.
+ * 기본 2 — 같은 프로젝트 MR 이 동시에 3건 이상 잡힐 때만 대기하고, 대기해도
+ * 재사용 체크아웃은 10초 안팎이라 체감이 작다.
+ */
+export const DEFAULT_SLOTS_PER_PROJECT = 2;
 export const MAX_SEEN_ITEM_IDS = 200;
 export const MAX_RECENT_ITEMS = 20;
 /**

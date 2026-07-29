@@ -3,7 +3,7 @@
 // Git 탭은 settings-git.ts, AI 탭은 settings-ai.ts 에 위임
 // strict mode — no `any`, no console.log
 import type { AppSettings } from '../../shared/types';
-import { DEFAULT_AUTO_REVIEW_CONCURRENCY } from '../../shared/constants';
+import { DEFAULT_SLOTS_PER_PROJECT, DEFAULT_AUTO_REVIEW_CONCURRENCY } from '../../shared/constants';
 import { initGitTab, flushGitPendingChanges, hasUnsavedGitChanges } from './settings-git';
 import { initAITab, flushAIPendingChanges, hasUnsavedAIChanges } from './settings-ai';
 import { initJiraTab, flushJiraPendingChanges, hasUnsavedJiraChanges } from './settings-jira';
@@ -40,6 +40,12 @@ const hotkeyInput     = $<HTMLInputElement>('dashboard-hotkey');
 const mergeDirInput   = $<HTMLInputElement>('merge-work-dir');
 const pickDirBtn      = $<HTMLButtonElement>('btn-pick-work-dir');
 const scopeSelect     = $<HTMLSelectElement>('auto-review-scope');
+const slotsInput      = $<HTMLInputElement>('autoreview-slots');
+const slotsValue      = $<HTMLSpanElement>('autoreview-slots-value');
+
+slotsInput.addEventListener('input', (): void => {
+  slotsValue.textContent = slotsInput.value;
+});
 const workDirPreview  = $<HTMLElement>('work-dir-preview');
 
 /** 실제로 어디에 클론되는지 그대로 보여준다 — "돌고 있는지 모르겠다" 를 막기 위함 */
@@ -149,6 +155,7 @@ async function save(): Promise<void> {
       projectFilters,
       autoReviewConcurrency: Number(autoreviewInput.value),
       autoReviewScope: scopeSelect.value === 'all' ? 'all' : 'mine',
+      autoReviewSlotsPerProject: Number(slotsInput.value),
     };
     await window.electronAPI.saveSettings({ settings: merged });
     window.close();
@@ -223,6 +230,9 @@ async function bootstrap(): Promise<void> {
     commentNotifInput.checked = settings.commentNotificationsEnabled ?? true;
     autoReviewInput.checked = settings.autoReviewEnabled ?? false;
     scopeSelect.value = settings.autoReviewScope === 'all' ? 'all' : 'mine';
+    const slots = settings.autoReviewSlotsPerProject ?? DEFAULT_SLOTS_PER_PROJECT;
+    slotsInput.value = String(slots);
+    slotsValue.textContent = String(slots);
     startupInput.checked = settings.launchOnStartup ?? false;
     hotkeyInput.value    = settings.dashboardHotkey ?? 'CommandOrControl+Shift+D';
     mergeDirInput.value  = settings.mergeWorkDir ?? '';
