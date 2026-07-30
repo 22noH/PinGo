@@ -302,3 +302,16 @@ export async function postReply(
     return { success: false, error: msg };
   }
 }
+
+/** 토론 스레드 해결 처리 — 자동 리뷰가 지적 없을 때 자기 스레드를 스스로 닫는다 */
+export async function resolveDiscussion(
+  client: AxiosInstance,
+  item: ReviewItemSummary,
+  discussionId: string,
+): Promise<void> {
+  await client.put(
+    `/projects/${item.projectId}/merge_requests/${item.itemId}/discussions/${discussionId}`,
+    null,
+    { params: { resolved: true } },
+  );
+}

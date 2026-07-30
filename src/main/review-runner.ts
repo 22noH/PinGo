@@ -29,6 +29,7 @@ ${hasRepo ? sourceWithRepo(targetBranch) : SOURCE_DIFF_ONLY}
 
 ## 종합 평가
 (2~3문장 요약 + 머지 가능 여부: ✅ 머지 가능 / ⚠️ 수정 권장 / ❌ 수정 필요)
+판정은 세 표기 중 **하나만** 쓰세요. 선택지 나열을 그대로 복사하지 마세요.
 
 ## 🐛 버그 위험
 

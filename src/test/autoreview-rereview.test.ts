@@ -32,6 +32,33 @@ test('resolved 가 undefined 인 일반 코멘트는 해결로 치지 않는다'
   assert.deepEqual(resolvedIds([thread('x', undefined)]), []);
 });
 
+test('Pingo 자기 리뷰 스레드 해결은 트리거가 아니다 — 무한루프 방지', () => {
+  const own = {
+    id: 'p', resolved: true,
+    notes: [{ id: '1', body: '🤖 **Pingo 자동 AI 리뷰**\n\n지적...' }],
+  } as unknown as Discussion;
+  assert.deepEqual(resolvedIds([own, thread('h', true)]), ['h'], '사람 스레드만 트리거');
+  assert.deepEqual(newlyResolved([], resolvedIds([own])), [], '자기 댓글 해결 → 재리뷰 없음');
+});
+
+// ── 지적 없음 판정 ─────────────────────────────────────────
+import { isCleanReview } from '../main/auto-review/clean';
+
+test('✅ 머지 가능 단독이면 깨끗한 리뷰 — 봇이 해결/승인까지 한다', () => {
+  assert.equal(isCleanReview('## 종합 평가\n문제 없음. ✅ 머지 가능\n\n## 🐛 버그 위험\n- 없음'), true);
+});
+
+test('⚠️/❌ 가 섞이면 깨끗하지 않다 — 사람이 판단', () => {
+  assert.equal(isCleanReview('✅ 머지 가능\n다만 ⚠️ 수정 권장'), false);
+  assert.equal(isCleanReview('❌ 수정 필요'), false);
+  assert.equal(
+    isCleanReview('머지 가능 여부: ✅ 머지 가능 / ⚠️ 수정 권장 / ❌ 수정 필요'),
+    false,
+    '양식 선택지를 그대로 복사한 출력은 판정 불가 → 승인 안 함',
+  );
+  assert.equal(isCleanReview('## 종합 평가\n괜찮습니다'), false, '판정 표기 없으면 승인 안 함');
+});
+
 // ── 리뷰 대상 범위 ─────────────────────────────────────────
 import type { ReviewItemSummary } from '../shared/types';
 

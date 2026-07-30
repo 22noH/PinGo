@@ -11,6 +11,7 @@ import type Store from 'electron-store';
 import type { AIConfig, AppSettings, Discussion, GitConfig, ReviewItemSummary, StoreSchema } from '../shared/types';
 import { AutoReviewOrchestrator, createAutoReviewOrchestrator, isResolved, resolveAutoReviewConcurrency, reviewableDiscussions } from './auto-review/orchestrator';
 import type { AutoReviewRequest } from './auto-review/orchestrator';
+import { COMMENT_HEADER, isCleanReview, isOwnReviewThread, settleClean } from './auto-review/clean';
 import { prepareSlot } from './auto-review/worktree';
 import { leaseSlot, markBroken, markProvisioned, type SlotLease } from './auto-review/slot-pool';
 import { createAIProvider } from './providers/ai/ai-provider';
@@ -21,7 +22,6 @@ import { buildPrompt, runReview } from './review-runner';
 import { DEFAULT_SLOTS_PER_PROJECT } from '../shared/constants';
 
 const MAX_CACHED_REVIEW_CHARS = 200_000;
-const COMMENT_HEADER = '🤖 **Pingo 자동 AI 리뷰**';
 
 interface AutoReviewPayload {
   item: ReviewItemSummary;
@@ -176,9 +176,13 @@ async function postOne(
   store.set('reviewCache', cache);
   log.info(`auto-review: done ${item.id} (${markdown.length} chars)`);
 
-  const res = await createGitProvider(cfg).postComment(item, `${COMMENT_HEADER}\n\n${markdown}`);
+  const provider = createGitProvider(cfg);
+  const res = await provider.postComment(item, `${COMMENT_HEADER}\n\n${markdown}`);
   if (res.success) log.info(`auto-review: 댓글 등록 ${item.id} (${res.commentId ?? '-'})`);
   else log.warn(`auto-review: 댓글 등록 실패 ${item.id}: ${(res.error ?? '').slice(0, 200)}`);
+
+  // 지적 없으면 사람 손을 안 빌린다 — 봇이 자기 스레드를 닫는다.
+  if (res.success && isCleanReview(markdown)) await settleClean(provider, item, res.commentId);
 }
 
 /** 자동 리뷰가 실패했음을 사용자에게 알린다. 알림을 꺼둔 상태(MUTED)면 로그만 남긴다. */
@@ -233,9 +237,13 @@ export function getAutoReviewStatus(): { active: number; queued: number } {
   };
 }
 
-/** 해결(resolved)된 스레드 id 목록 */
+/**
+ * 해결(resolved)된 스레드 id 목록 — Pingo 자기 리뷰 스레드는 제외.
+ * GitLab 은 자동 리뷰 댓글도 resolvable 스레드로 만들어서, 머지하려면 해결해야 한다.
+ * 그 해결을 재리뷰 트리거로 세면 리뷰 → 해결 → 리뷰 무한루프가 된다.
+ */
 export function resolvedIds(discussions: Discussion[]): string[] {
-  return discussions.filter(isResolved).map((d) => d.id);
+  return discussions.filter((d) => isResolved(d) && !isOwnReviewThread(d)).map((d) => d.id);
 }
 
 /**

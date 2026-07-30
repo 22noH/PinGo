@@ -255,6 +255,9 @@ export class GitLabProvider implements GitProvider {
   postReply(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentPostResult> {
     return V3.postReply(this.client, item, payload);
   }
+  resolveDiscussion(item: ReviewItemSummary, discussionId: string): Promise<void> {
+    return V3.resolveDiscussion(this.client, item, discussionId);
+  }
   runPipeline(item: ReviewItemSummary): Promise<PipelineRunResult> {
     return V3.runPipeline(this.client, item);
   }
