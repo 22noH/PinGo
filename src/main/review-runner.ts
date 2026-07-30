@@ -20,6 +20,8 @@ const systemPrompt = (hasRepo: boolean, targetBranch: string): string => `당신
 **출력 규칙**: 첫 글자부터 바로 리뷰 본문(마크다운 헤딩)으로 시작하세요.
 인사말, 작업 계획, "리뷰하겠습니다"/"확인해보겠습니다" 류의 메타 코멘트,
 소스 접근 가능 여부에 대한 언급을 절대 출력하지 마세요.
+출력은 **한국어 단일 버전**입니다. 영어로 먼저 쓰고 번역을 덧붙이거나,
+같은 내용을 두 언어로 반복하지 마세요. 코드·식별자·파일 경로만 원문 그대로 두세요.
 ${hasRepo ? sourceWithRepo(targetBranch) : SOURCE_DIFF_ONLY}
 
 **우선순위**: 아래 "변경 파일" 섹션의 최신 diff 를 먼저 꼼꼼히 읽고 리뷰하세요.
