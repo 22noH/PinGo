@@ -57,8 +57,8 @@ export interface GitProvider {
   runPipeline?(item: ReviewItemSummary): Promise<PipelineRunResult>;
   /** 저장소 HTTP clone URL (AI 머지용 — 인증 없이 반환, 토큰 주입은 호출측) */
   fetchRepoCloneUrl?(item: ReviewItemSummary): Promise<string>;
-  /** 토론 스레드 해결 처리 (GitLab 전용 — GitHub 일반 코멘트는 resolvable 아님) */
-  resolveDiscussion?(item: ReviewItemSummary, discussionId: string): Promise<void>;
+  /** 토론 스레드 해결/해제 (GitLab 전용 — GitHub 일반 코멘트는 resolvable 아님). resolved 기본 true. */
+  resolveDiscussion?(item: ReviewItemSummary, discussionId: string, resolved?: boolean): Promise<void>;
 }
 
 export function createGitProvider(config: GitConfig): GitProvider {

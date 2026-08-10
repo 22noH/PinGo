@@ -32,13 +32,40 @@ test('resolved 가 undefined 인 일반 코멘트는 해결로 치지 않는다'
   assert.deepEqual(resolvedIds([thread('x', undefined)]), []);
 });
 
-test('Pingo 자기 리뷰 스레드 해결은 트리거가 아니다 — 무한루프 방지', () => {
-  const own = {
-    id: 'p', resolved: true,
-    notes: [{ id: '1', body: '🤖 **Pingo 자동 AI 리뷰**\n\n지적...' }],
-  } as unknown as Discussion;
-  assert.deepEqual(resolvedIds([own, thread('h', true)]), ['h'], '사람 스레드만 트리거');
-  assert.deepEqual(newlyResolved([], resolvedIds([own])), [], '자기 댓글 해결 → 재리뷰 없음');
+// 무한루프 방지의 실제 메커니즘 (전체 재리뷰는 더 이상 없다):
+//  1) 해결 감지 → 전체 리뷰가 아니라 그 스레드의 "해결 검증" 만 돌고, 결과는 스레드 답글.
+//     새 resolvable 스레드가 안 생기므로 해결 → 리뷰 → 해결 반복이 원천적으로 없다.
+//  2) 봇이 settleClean/검증 수용으로 처리한 스레드 id 는 캐시에 기록 → 다시 트리거 안 됨.
+test('봇 자체 해결(캐시에 기록됨)은 검증 트리거가 아니다 — 무한루프 방지', () => {
+  const own = thread('p', true); // 봇이 settleClean 으로 해결 → postOne 이 'p' 를 캐시에 기록
+  assert.deepEqual(newlyResolved(['p'], resolvedIds([own])), [], '기록된 자체 해결 → 검증 없음');
+});
+
+test('사람이 스레드를 해결하면 그 스레드만 검증 대상이 된다 — 지적 고침 신호', () => {
+  const own = thread('p', true); // 사람이 해결 → 캐시에 기록 없음
+  assert.deepEqual(resolvedIds([own, thread('h', true)]), ['p', 'h'], 'Pingo 스레드도 트리거 대상');
+  assert.deepEqual(newlyResolved([], ['p']), ['p'], '기록에 없는 해결 → 검증');
+});
+
+// ── 해결 검증 판정 파싱 ────────────────────────────────────
+import { parseVerdict, VERIFY_HEADER } from '../main/auto-review/verify';
+
+test('판정: 해결 → 수용 + 답글', () => {
+  const v = parseVerdict('t', '판정: 해결\n사유: null 가드가 추가됨 (a.ts:10)');
+  assert.equal(v.fixed, true);
+  assert.ok(v.reply.startsWith(VERIFY_HEADER));
+});
+
+test('판정: 미해결 → 스레드 다시 연다', () => {
+  const v = parseVerdict('t', '판정: 미해결\n사유: b.ts:22 에 같은 패턴이 남아 있음');
+  assert.equal(v.fixed, false);
+});
+
+test('양식 미준수/변형 표기는 판단 불가 — 사람 판단 존중(수용, 답글 없음)', () => {
+  assert.equal(parseVerdict('t', '해결된 것 같습니다.').fixed, null);
+  assert.equal(parseVerdict('t', '판정: 해결되지 않음').fixed, null, '변형 표기는 미해결로 오판하지 않는다');
+  assert.equal(parseVerdict('t', '').fixed, null);
+  assert.equal(parseVerdict('t', '').reply, '', '출력이 비면 답글도 없다');
 });
 
 // ── 지적 없음 판정 ─────────────────────────────────────────

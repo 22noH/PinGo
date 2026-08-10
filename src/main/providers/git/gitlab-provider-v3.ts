@@ -303,15 +303,16 @@ export async function postReply(
   }
 }
 
-/** 토론 스레드 해결 처리 — 자동 리뷰가 지적 없을 때 자기 스레드를 스스로 닫는다 */
+/** 토론 스레드 해결/해제 — resolved=false 면 다시 연다(해결 검증에서 미해결 판정 시) */
 export async function resolveDiscussion(
   client: AxiosInstance,
   item: ReviewItemSummary,
   discussionId: string,
+  resolved = true,
 ): Promise<void> {
   await client.put(
     `/projects/${item.projectId}/merge_requests/${item.itemId}/discussions/${discussionId}`,
     null,
-    { params: { resolved: true } },
+    { params: { resolved } },
   );
 }

@@ -4,15 +4,10 @@
 // 손으로 해결을 눌러야 하면 (1) 머지가 막히고 (2) 그 해결이 재리뷰를 불러 무한루프가 된다.
 // 그래서 깨끗한 리뷰는 봇이 스스로 스레드를 닫고 승인까지 올린다.
 import log from 'electron-log';
-import type { Discussion, ReviewItemSummary } from '../../shared/types';
+import type { ReviewItemSummary } from '../../shared/types';
 import type { GitProvider } from '../providers/git/git-provider';
 
 export const COMMENT_HEADER = '🤖 **Pingo 자동 AI 리뷰**';
-
-/** Pingo 가 단 리뷰 스레드인지 — 첫 노트의 헤더로 판별 */
-export function isOwnReviewThread(d: Discussion): boolean {
-  return d.notes[0]?.body.startsWith(COMMENT_HEADER) === true;
-}
 
 /**
  * 지적 없는 리뷰인지 — 종합 평가가 ✅ 머지 가능 단독일 때만.
@@ -31,17 +26,21 @@ export function isCleanReview(markdown: string): boolean {
  * 깨끗한 리뷰 마무리: 방금 단 자기 스레드를 봇이 스스로 해결한다.
  * 스레드 해결은 셀프 제약이 없다(작성자 = 봇, MR 작성자 = 나) — 승인과 달리 항상 된다.
  * 실패해도 리뷰 자체는 성공이므로 경고만 남긴다.
+ * @returns 실제로 해결했으면 true — 호출부(postOne)가 이 id 를 캐시에 기록해
+ *          "봇 자체 해결" 이 재리뷰 트리거로 잡히지 않게 한다(무한루프 방지).
  */
 export async function settleClean(
   provider: GitProvider,
   item: ReviewItemSummary,
   discussionId: string | undefined,
-): Promise<void> {
-  if (!discussionId || !provider.resolveDiscussion) return;
+): Promise<boolean> {
+  if (!discussionId || !provider.resolveDiscussion) return false;
   try {
     await provider.resolveDiscussion(item, discussionId);
     log.info(`auto-review: 지적 없음 — 자기 스레드 해결 ${item.id} (${discussionId})`);
+    return true;
   } catch (err) {
     log.warn(`auto-review: 스레드 해결 실패 ${item.id}: ${String(err).slice(0, 200)}`);
+    return false;
   }
 }
