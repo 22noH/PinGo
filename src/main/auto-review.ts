@@ -265,7 +265,6 @@ function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReview
     {
       runReview: runOne,
       postResult: postOne,
-      onEvict: (req) => log.warn(`auto-review: 대기열 초과로 취소 ${req.key}`),
       logError: (msg, req) => {
         const safe = mask(msg, req.payload.cfg.token).slice(0, 200);
         log.warn(`auto-review: failed ${req.key}: ${safe}`);
