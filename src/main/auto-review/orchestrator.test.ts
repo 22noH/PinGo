@@ -1,4 +1,4 @@
-// main/auto-review/orchestrator.test.ts — 동시 한도·대기열·LRU·즉시 댓글·resolved 감지 검증.
+// main/auto-review/orchestrator.test.ts — 동시 한도·대기열(무제한)·즉시 댓글·resolved 감지 검증.
 // 프레임워크 없이 Node 내장 러너로 실행: `npm test` → tsc 빌드 후 `node --test dist/main/auto-review/`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +23,6 @@ const tick = () => new Promise((r) => setImmediate(r));
 function harness(max: number) {
   const gates = new Map<string, ReturnType<typeof deferred<string>>>();
   const posted: Array<{ key: string; result: string }> = [];
-  const evicted: string[] = [];
   const orch = new AutoReviewOrchestrator<void, string>({
     maxConcurrent: max,
     runReview: (req) => {
@@ -35,7 +34,6 @@ function harness(max: number) {
       posted.push({ key: req.key, result });
       return Promise.resolve();
     },
-    onEvict: (req) => evicted.push(req.key),
   });
   const submit = (key: string) => orch.submit({ key, payload: undefined });
   /** 해당 key 의 runReview 를 완료시키고 후속 처리(postResult/drain)까지 흘려보낸다. */
@@ -44,7 +42,7 @@ function harness(max: number) {
     await tick();
     await tick();
   };
-  return { orch, submit, finish, posted, evicted };
+  return { orch, submit, finish, posted };
 }
 
 test('동시 한도: max 개까지만 실행하고 초과는 대기열로', () => {
@@ -70,25 +68,23 @@ test('즉시 댓글: 리뷰 완료 즉시 postResult 로 결과 게시', async (
   assert.deepEqual(h.posted, [{ key: 'k0', result: 'REVIEW' }]);
 });
 
-test('LRU: 슬롯·대기열 가득 상태에서 신규 요청은 가장 오래된 대기 항목을 교체', () => {
-  const h = harness(5);
-  for (let i = 0; i < 10; i++) h.submit(`k${i}`); // 5 active(k0-4), queue=[k5..k9] (가득)
-  assert.equal(h.orch.queuedCount, 5);
-  h.submit('k10'); // queue 가득 → head(k5) evict, k10 tail 추가
-  assert.deepEqual(h.evicted, ['k5'], '가장 오래된 대기 항목 정리');
-  assert.equal(h.orch.queuedCount, 5, '용량 유지');
+test('대기열 무제한: 상한 초과 요청도 버려지지 않고 전부 처리된다', async () => {
+  const h = harness(2);
+  for (let i = 0; i < 12; i++) h.submit(`k${i}`); // 2 active, 10 queued — 유실 없음
+  assert.equal(h.orch.queuedCount, 10, '초과분 전부 대기열에 남는다');
+  for (let i = 0; i < 12; i++) await h.finish(`k${i}`);
+  assert.equal(h.posted.length, 12, '모든 요청이 결국 리뷰/게시된다');
+  assert.equal(h.orch.queuedCount, 0);
 });
 
-test('중복 방지: 실행 중 key 재요청은 무시, 대기 중 key 재요청은 LRU 갱신(교체 안 함)', () => {
+test('중복 방지: 실행 중 key 재요청은 무시, 대기 중 key 재요청은 순번 유지·payload 만 교체', () => {
   const h = harness(5);
   for (let i = 0; i < 10; i++) h.submit(`k${i}`); // queue=[k5,k6,k7,k8,k9]
   h.submit('k0'); // active 재요청 → 무시
   assert.equal(h.orch.activeCount, 5);
   assert.equal(h.orch.queuedCount, 5);
-  h.submit('k5'); // 대기 중 재요청 → tail 로 이동, evict 없음
-  assert.deepEqual(h.evicted, [], '기존 대기 항목 재요청은 정리하지 않음');
-  h.submit('k10'); // 이제 head 는 k6 → k6 evict
-  assert.deepEqual(h.evicted, ['k6'], 'LRU 갱신 후 새 head 가 정리 대상');
+  h.submit('k5'); // 대기 중 재요청 → 중복 추가 없음
+  assert.equal(h.orch.queuedCount, 5, '대기 중 재요청은 개수를 늘리지 않는다');
 });
 
 test('resolved 감지(B안): resolved 스레드만 리뷰 대상에서 제외', () => {

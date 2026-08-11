@@ -3,14 +3,11 @@
 // 정책:
 //   - 동시 실행 최대 N개(설정 autoReviewConcurrency, 기본 5). 초과는 대기열로.
 //   - 대기열은 FIFO 로 하나씩 꺼내 빈 슬롯을 채운다(순차 처리).
-//   - 대기열은 LRU 로 관리(용량 = maxConcurrent). 슬롯이 가득 찬 상태에서 신규 distinct
-//     요청이 오고 대기열도 가득 차면, 가장 오래된(head) 대기 항목을 정리/교체한다.
-//     이미 대기/실행 중인 동일 key 재요청은 LRU 를 갱신(최신으로 이동)하고 무시(중복 방지).
+//   - 대기열은 무제한 — key(MR id) dedup 덕에 크기가 열린 MR 수를 못 넘는다.
+//     상한을 두고 오래된 항목을 버리면 리뷰/검증이 조용히 유실된다(트리거는 일회성이라
+//     seenUpdatedAt 갱신 후 버려지면 MR 에 다른 변화가 올 때까지 재시도가 없다).
+//     이미 대기/실행 중인 동일 key 재요청은 무시(중복 방지, 대기 항목은 최신 payload 로 교체).
 //   - 리뷰 완료 즉시 postResult 로 대상(PR/스레드)에 댓글 게시.
-//
-// ponytail: 실행 중(active) 리뷰는 abort 하지 않고 대기열 head 를 LRU 로 교체한다 —
-//   진행 중 리뷰의 worktree/토큰 작업을 버리지 않는 쪽이 저렴. in-flight 취소가 필요하면
-//   evict 대상을 active 로 확장.
 import type { AppSettings, Discussion } from '../../shared/types';
 import { DEFAULT_AUTO_REVIEW_CONCURRENCY } from '../../shared/constants';
 
@@ -27,8 +24,6 @@ export interface OrchestratorDeps<T = unknown, R = unknown> {
   runReview: (req: AutoReviewRequest<T>, signal: AbortSignal) => Promise<R>;
   /** 완료 즉시 대상 PR/스레드에 결과 댓글 게시. */
   postResult: (req: AutoReviewRequest<T>, result: R) => Promise<void>;
-  /** 대기열에서 LRU 로 정리된 요청 통지 (선택). */
-  onEvict?: (req: AutoReviewRequest<T>) => void;
   /** 에러 로깅 (선택). */
   logError?: (msg: string, req: AutoReviewRequest<T>) => void;
 }
@@ -58,24 +53,18 @@ export class AutoReviewOrchestrator<T = unknown, R = unknown> {
     return this.queue.length;
   }
 
-  /** 신규 리뷰 요청. 중복/초과/LRU 정책에 따라 즉시 실행하거나 대기열에 넣는다. */
+  /** 신규 리뷰 요청. 중복이면 무시, 슬롯이 비면 즉시 실행, 아니면 대기열에 넣는다(유실 없음). */
   submit(req: AutoReviewRequest<T>): void {
     if (this.active.has(req.key)) return; // 이미 실행 중 — 중복 무시
     const queuedIdx = this.queue.findIndex((q) => q.key === req.key);
     if (queuedIdx !== -1) {
-      // 대기 중 재요청 — LRU 갱신(최신으로 이동)
-      this.queue.splice(queuedIdx, 1);
-      this.queue.push(req);
+      // 대기 중 재요청 — 순번은 유지하고 payload 만 최신으로 교체
+      this.queue[queuedIdx] = req;
       return;
     }
     if (this.active.size < this.max) {
       this.start(req);
       return;
-    }
-    // 슬롯 가득 — 대기열로. 대기열도 가득이면 LRU(head) 정리/교체.
-    if (this.queue.length >= this.max) {
-      const evicted = this.queue.shift();
-      if (evicted) this.deps.onEvict?.(evicted);
     }
     this.queue.push(req);
   }
