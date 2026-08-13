@@ -68,8 +68,8 @@ export type ReviewOutcome =
   | { kind: 'review'; markdown: string; resolvedThreadIds: string[] }
   | { kind: 'verify'; verdicts: ThreadVerdict[] };
 
-async function prepareWorkspace(
-  payload: AutoReviewPayload,
+export async function prepareWorkspace(
+  payload: Pick<AutoReviewPayload, 'item' | 'cfg' | 'store'>,
 ): Promise<{ dir: string; release: () => void } | null> {
   const { item, cfg, store } = payload;
   const provider = createGitProvider(cfg);
