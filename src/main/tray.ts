@@ -28,6 +28,8 @@ interface TrayHandlers {
   onOpenList: () => void;
   onOpenItem: (item: ReviewItemSummary) => void;
   onReviewItem: (item: ReviewItemSummary) => void;
+  /** 자동 리뷰 파이프라인으로 전체 재리뷰 (결과는 MR 댓글로 게시) */
+  onForceReview: (item: ReviewItemSummary) => void;
   onInstallUpdate: () => void;
   onCheckUpdate: () => void;
   onOpenReleaseNotes: (version: string | null) => void;
@@ -183,6 +185,10 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
             {
               label: '🧠 AI 리뷰',
               click: (): void => handlers.onReviewItem(item),
+            },
+            {
+              label: '🔁 자동 리뷰 다시 실행 (댓글 게시)',
+              click: (): void => handlers.onForceReview(item),
             },
             {
               label: '🌐 브라우저로 열기',

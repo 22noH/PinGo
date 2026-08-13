@@ -318,6 +318,8 @@ export interface StoreSchema {
    *  - resolvedThreadIds: 리뷰 시점에 해결돼 있던 토론 스레드 — 이후 새로 해결된 게
    *    생기면 재리뷰한다(지적을 고치고 스레드를 닫는 흐름에 맞춘 트리거)
    *  - seenUpdatedAt: 마지막으로 확인한 MR updatedAt — 변화 없으면 API 호출을 건너뛴다
+   *  - discussionsCheckedAt: 마지막 토론 조회 시각 — 댓글 없는 resolve 는 MR updatedAt 을
+   *    안 바꾸므로, 이 시각 기준으로 주기적으로라도 토론을 다시 본다
    */
   reviewCache?: Record<string, {
     markdown: string;
@@ -325,6 +327,7 @@ export interface StoreSchema {
     headSha?: string;
     resolvedThreadIds?: string[];
     seenUpdatedAt?: string;
+    discussionsCheckedAt?: string;
   }>;
 }
 

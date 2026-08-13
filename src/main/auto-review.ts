@@ -314,22 +314,51 @@ export function newlyResolved(cachedIds: string[] | undefined, current: string[]
   return current.filter((id) => !before.has(id));
 }
 
+/** updatedAt 이 안 변해도 토론을 다시 보는 최소 간격 */
+export const DISCUSSION_RECHECK_MS = 5 * 60_000;
+
+/**
+ * 이번 tick 에 토론을 조회할지.
+ * updatedAt 변화면 즉시. 변화가 없어도 마지막 조회가 오래됐으면 조회한다 —
+ * GitLab 은 댓글 없이 스레드만 resolve 하면 MR updatedAt 을 안 바꿔서,
+ * updatedAt 만 믿으면 그 해결은 영영 검증되지 않는다.
+ */
+export function shouldCheckDiscussions(
+  cached: { seenUpdatedAt?: string; discussionsCheckedAt?: string },
+  itemUpdatedAt: string,
+  now: number,
+): boolean {
+  if (cached.seenUpdatedAt !== itemUpdatedAt) return true;
+  const last = cached.discussionsCheckedAt ? Date.parse(cached.discussionsCheckedAt) : NaN;
+  return !Number.isFinite(last) || now - last >= DISCUSSION_RECHECK_MS;
+}
+
 function submit(
   store: Store<StoreSchema>,
   item: ReviewItemSummary,
   why: string,
   verifyThreadIds?: string[],
+  force = false,
 ): void {
   const settings = store.get('settings');
   const cfg = settings.gitConnections.find((c) => c.id === item.gitConfigId);
   if (!cfg) return;
-  if (!isReviewTarget(settings.autoReviewScope, cfg, item)) return;
+  if (!force && !isReviewTarget(settings.autoReviewScope, cfg, item)) return;
 
   log.info(`auto-review: queue ${item.id} (${why}) ${item.title.slice(0, 60)}`);
   getOrchestrator(resolveAutoReviewConcurrency(settings)).submit({
     key: item.id,
     payload: { item, cfg, ai: settings.ai, store, verifyThreadIds },
   });
+}
+
+/**
+ * 트레이 메뉴에서 사람이 직접 누른 재리뷰 — 이력/스코프 검사 없이 전체 리뷰를 다시 돌린다.
+ * 자동 경로는 첫 리뷰 이후 "해결 검증"만 하므로, 전체 재리뷰는 이 수동 트리거가 유일한 통로.
+ * 완료 시 postOne 이 캐시(resolvedThreadIds/seenUpdatedAt)를 새로 쓰므로 검증 루프와도 정합.
+ */
+export function forceAutoReview(store: Store<StoreSchema>, item: ReviewItemSummary): void {
+  submit(store, item, '수동 재리뷰', undefined, true);
 }
 
 /** 새 MR/PR·리뷰어 지정 감지 시 첫 리뷰. 이미 리뷰한 적이 있으면 아무것도 하지 않는다. */
@@ -355,7 +384,7 @@ export function maybeAutoReviewOnPoll(store: Store<StoreSchema>, item: ReviewIte
     submit(store, item, '첫 리뷰(폴링)');
     return;
   }
-  if (cached.seenUpdatedAt === item.updatedAt) return; // MR 에 아무 변화 없음
+  if (!shouldCheckDiscussions(cached, item.updatedAt, Date.now())) return;
 
   const cfg = settings.gitConnections.find((c) => c.id === item.gitConfigId);
   if (!cfg) return;
@@ -364,12 +393,16 @@ export function maybeAutoReviewOnPoll(store: Store<StoreSchema>, item: ReviewIte
   void (async (): Promise<void> => {
     try {
       const discussions = await createGitProvider(cfg).fetchDiscussions(item);
-      const fresh = newlyResolved(cached.resolvedThreadIds, resolvedIds(discussions));
-      // updatedAt 을 갱신해 다음 tick 에서 같은 조회를 반복하지 않는다
+      const current = resolvedIds(discussions);
+      const fresh = newlyResolved(cached.resolvedThreadIds, current);
+      // updatedAt/조회 시각을 갱신해 다음 tick 에서 같은 조회를 반복하지 않는다
       const cache = store.get('reviewCache') ?? {};
       const entry = cache[item.id];
       if (entry) {
         entry.seenUpdatedAt = item.updatedAt;
+        entry.discussionsCheckedAt = new Date().toISOString();
+        // 구버전 캐시(기준 없음)는 지금 상태를 기준으로 — 다음 해결부터 검증이 걸린다
+        if (!entry.resolvedThreadIds) entry.resolvedThreadIds = current;
         store.set('reviewCache', cache);
       }
       if (fresh.length === 0) return;

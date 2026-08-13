@@ -3,7 +3,7 @@
 // 이 가드가 느슨해지면 폴링(30초)마다 팀이 보는 MR 에 AI 댓글이 쌓인다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newlyResolved, resolvedIds } from '../main/auto-review';
+import { DISCUSSION_RECHECK_MS, newlyResolved, resolvedIds, shouldCheckDiscussions } from '../main/auto-review';
 import type { Discussion } from '../shared/types';
 
 const thread = (id: string, resolved: boolean | undefined): Discussion => ({
@@ -26,6 +26,30 @@ test('스레드를 다시 열어(unresolve) 개수가 줄어도 재리뷰 안 �
 
 test('리뷰 이력이 없으면 재리뷰 경로 아님 (첫 리뷰가 담당)', () => {
   assert.deepEqual(newlyResolved(undefined, ['a', 'b']), []);
+});
+
+// ── 토론 조회 게이트 ───────────────────────────────────────
+// 댓글 없는 resolve 는 GitLab 이 MR updatedAt 을 안 바꾼다 — updatedAt 만 믿으면
+// 그 해결은 영영 검증되지 않는다(20260813 버그). 주기 재조회가 안전망.
+test('updatedAt 이 바뀌면 즉시 토론 조회', () => {
+  const now = Date.parse('2026-08-13T00:00:00Z');
+  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1', discussionsCheckedAt: new Date(now).toISOString() }, 't2', now), true);
+});
+
+test('updatedAt 그대로 + 최근에 조회함 → 건너뜀 (API 아끼기)', () => {
+  const now = Date.parse('2026-08-13T00:00:00Z');
+  const justChecked = new Date(now - 1000).toISOString();
+  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1', discussionsCheckedAt: justChecked }, 't1', now), false);
+});
+
+test('updatedAt 그대로여도 조회가 오래됐으면 다시 본다 — 댓글 없는 resolve 감지', () => {
+  const now = Date.parse('2026-08-13T00:00:00Z');
+  const stale = new Date(now - DISCUSSION_RECHECK_MS).toISOString();
+  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1', discussionsCheckedAt: stale }, 't1', now), true);
+});
+
+test('조회 시각 기록이 없으면(구버전 캐시) 조회한다', () => {
+  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1' }, 't1', Date.now()), true);
 });
 
 test('resolved 가 undefined 인 일반 코멘트는 해결로 치지 않는다', () => {
