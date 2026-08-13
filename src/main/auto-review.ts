@@ -158,7 +158,7 @@ async function runOne(
   signal: AbortSignal,
 ): Promise<ReviewOutcome> {
   if (req.payload.verifyThreadIds) return runVerify(req, signal);
-  const { item, cfg, ai } = req.payload;
+  const { item, cfg, ai, store } = req.payload;
   const provider = createGitProvider(cfg);
 
   const [full, discussions] = await Promise.all([
@@ -174,7 +174,9 @@ async function runOne(
   const workspace = await prepareWorkspace(req.payload);
   try {
     if (signal.aborted) throw new Error('중단됨');
-    const prompt = buildPrompt(full, undefined, workspace !== null);
+    // 이전 리뷰가 있으면(재리뷰) 프롬프트에 포함 — 지적별 해결 여부를 명시한 리뷰가 나온다
+    const prevReview = (store.get('reviewCache') ?? {})[item.id]?.markdown;
+    const prompt = buildPrompt(full, prevReview, workspace !== null);
     let markdown = '';
     await new Promise<void>((resolve, reject) => {
       const handle = runReview(
