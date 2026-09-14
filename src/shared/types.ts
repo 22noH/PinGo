@@ -159,6 +159,11 @@ export interface Discussion {
    * 자동 리뷰(B안)는 resolved === true 인 스레드에는 중복/재리뷰 댓글을 달지 않는다.
    */
   resolved?: boolean;
+  /**
+   * 마지막 해결 시각(ISO). 스레드를 다시 열었다 닫으면 바뀐다 — 재해결 검증 트리거의 기준.
+   * provider 가 모르면(GitHub) undefined → id 기준으로만 판단.
+   */
+  resolvedAt?: string;
 }
 
 /** 리뷰/상세용 — changes 필수, discussions는 선택적 */
@@ -324,6 +329,8 @@ export interface StoreSchema {
     updatedAt: string;
     headSha?: string;
     resolvedThreadIds?: string[];
+    /** 수용한 스레드의 해결 시각(threadId → resolvedAt). 다시 열었다 닫으면 값이 달라져 재검증된다. */
+    resolvedAt?: Record<string, string>;
   }>;
 }
 

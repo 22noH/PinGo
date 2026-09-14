@@ -17,6 +17,8 @@ export interface ThreadVerdict {
   fixed: boolean | null;
   /** 스레드에 달 답글 본문 — 판단 불가여도 그 사실을 남긴다 */
   reply: string;
+  /** 검증한 해결의 시각 — 수용 시 캐시에 기록해 재해결(값 변경)만 다시 검증되게 */
+  resolvedAt?: string;
 }
 
 /**
@@ -63,6 +65,17 @@ export function parseVerdict(threadId: string, output: string): ThreadVerdict {
   return { threadId, fixed, reply };
 }
 
+/**
+ * 이 스레드에 수용된 Pingo 검증 답글(해결 확인 또는 판단 불가)이 이미 달려 있는지.
+ * 마지막 검증 답글 기준 — 미해결 판정 뒤 사람이 고치고 다시 닫으면 재검증돼야 한다.
+ * 사용자 결정(20260914): 수용된 검증 댓글이 있으면 스레드를 열었다 닫아도 다시 검증하지 않는다.
+ */
+export function hasAcceptedVerification(d: Discussion): boolean {
+  const last = [...d.notes].reverse().find((n) => n.body.startsWith(VERIFY_HEADER));
+  if (!last) return false;
+  return parseVerdict(d.id, last.body).fixed !== false;
+}
+
 /** 검증 자체를 못 한 경우(저장소 준비 실패 등) — 이유를 답글로 남기고 사람 판단을 수용한다 */
 export function unverifiableVerdict(threadId: string, reason: string): ThreadVerdict {
   return {
@@ -95,7 +108,7 @@ export async function postVerdicts(
   verdicts: ThreadVerdict[],
   store: Store<StoreSchema>,
 ): Promise<string> {
-  const accepted: string[] = [];
+  const accepted: ThreadVerdict[] = [];
   for (const v of verdicts) {
     try {
       if (v.reply && provider.postReply) {
@@ -113,13 +126,13 @@ export async function postVerdicts(
         log.info(`auto-review: 검증 미해결 → 스레드 다시 엶 ${item.id} (${v.threadId})`);
         continue;
       }
-      accepted.push(v.threadId);
+      accepted.push(v);
       log.info(
         `auto-review: 검증 ${v.fixed === true ? '해결 확인' : '판단 불가 — 수용'} ${item.id} (${v.threadId})`,
       );
     } catch (err) {
       // 답글/재오픈 실패 — 이 해결은 수용 처리해 검증 재시도 루프를 막는다
-      accepted.push(v.threadId);
+      accepted.push(v);
       log.warn(`auto-review: 검증 게시 실패 ${item.id} (${v.threadId}): ${String(err).slice(0, 200)}`);
     }
   }
@@ -127,7 +140,14 @@ export async function postVerdicts(
     const cache = store.get('reviewCache') ?? {};
     const entry = cache[item.id];
     if (entry) {
-      entry.resolvedThreadIds = [...(entry.resolvedThreadIds ?? []), ...accepted];
+      const ids = new Set(entry.resolvedThreadIds ?? []);
+      const at = { ...(entry.resolvedAt ?? {}) };
+      for (const v of accepted) {
+        ids.add(v.threadId);
+        if (v.resolvedAt) at[v.threadId] = v.resolvedAt;
+      }
+      entry.resolvedThreadIds = [...ids];
+      entry.resolvedAt = at;
       store.set('reviewCache', cache);
     }
   }

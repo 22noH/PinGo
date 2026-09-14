@@ -137,12 +137,12 @@ async function runVerify(
       if (signal.aborted) throw new Error('중단됨');
       if (!workspace) {
         // 클론 실패 — 코드를 못 보면 판정 불가. 그 사실을 답글로 남기고 사람 판단을 수용.
-        verdicts.push(unverifiableVerdict(d.id, '저장소 준비(클론/fetch) 실패'));
+        verdicts.push({ ...unverifiableVerdict(d.id, '저장소 준비(클론/fetch) 실패'), resolvedAt: d.resolvedAt });
         continue;
       }
       setPhase(`AI 검증 ${i + 1}/${targets.length}`);
       const out = await runAI(ai, buildVerifyPrompt(d, item.targetBranch), workspace.dir, signal);
-      verdicts.push(parseVerdict(d.id, out));
+      verdicts.push({ ...parseVerdict(d.id, out), resolvedAt: d.resolvedAt });
     }
     return { kind: 'verify', verdicts };
   } finally {

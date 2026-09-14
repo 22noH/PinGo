@@ -16,6 +16,7 @@ import {
 } from './auto-review/orchestrator';
 import type { AutoReviewStatus } from './auto-review/status';
 import { mask, postOne, runOne, type AutoReviewPayload, type ReviewOutcome } from './auto-review/pipeline';
+import { hasAcceptedVerification } from './auto-review/verify';
 import { createGitProvider } from './providers/git/git-provider';
 import { sendAutoReviewFailure } from './notifier';
 
@@ -127,6 +128,58 @@ export function newlyResolved(cachedIds: string[] | undefined, current: string[]
   return current.filter((id) => !before.has(id));
 }
 
+/** 캐시 항목 중 검증 기준에 쓰는 부분 */
+export interface ResolvedRecord {
+  resolvedThreadIds?: string[];
+  resolvedAt?: Record<string, string>;
+}
+
+/**
+ * 검증할 스레드: 새로 해결된 것 + 수용 이후 다시 열었다 닫은 것(resolvedAt 이 기록과 다름).
+ * id 만 기억하면 재해결이 영영 안 잡힌다(20260914 리포트). GitHub 처럼 resolvedAt 을
+ * 모르는 provider 는 id 기준으로만 본다.
+ * 단, 수용된 검증 답글이 이미 달린 스레드는 제외 — 닫을 때마다 AI 가 도는 것을 막는다.
+ * (검증 답글이 없거나 마지막 판정이 미해결이면 닫을 때마다 검증)
+ */
+export function threadsToVerify(entry: ResolvedRecord, discussions: Discussion[]): string[] {
+  if (!entry.resolvedThreadIds) return [];
+  const known = new Set(entry.resolvedThreadIds);
+  const at = entry.resolvedAt ?? {};
+  return discussions
+    .filter(isResolved)
+    .filter((d) => !hasAcceptedVerification(d))
+    .filter((d) => !known.has(d.id) || (d.resolvedAt !== undefined && at[d.id] !== undefined && at[d.id] !== d.resolvedAt))
+    .map((d) => d.id);
+}
+
+/**
+ * 다시 열린(더 이상 resolved 가 아닌) 스레드를 기록에서 뺀다 — 이후 닫으면 새 해결로 잡힌다.
+ * 봇이 "미해결" 로 다시 연 스레드, resolvedAt 을 모르는 provider 의 재해결이 이 경로로 잡힌다.
+ */
+export function pruneUnresolved(entry: ResolvedRecord, discussions: Discussion[]): ResolvedRecord {
+  const stillResolved = new Set(discussions.filter(isResolved).map((d) => d.id));
+  const ids = (entry.resolvedThreadIds ?? []).filter((id) => stillResolved.has(id));
+  const at: Record<string, string> = {};
+  for (const id of ids) {
+    const v = entry.resolvedAt?.[id];
+    if (v) at[id] = v;
+  }
+  return { resolvedThreadIds: ids, resolvedAt: at };
+}
+
+/**
+ * 구버전 캐시(id 만 있고 resolvedAt 없음)에 현재 해결 시각을 채운다 — 이 다음 재해결부터 잡힌다.
+ * 알려진 id 중 지금 resolved 이고 시각을 아는 것만 기록한다.
+ */
+export function seedResolvedAt(entry: ResolvedRecord, discussions: Discussion[]): ResolvedRecord {
+  const known = new Set(entry.resolvedThreadIds ?? []);
+  const at: Record<string, string> = {};
+  for (const d of discussions) {
+    if (known.has(d.id) && isResolved(d) && d.resolvedAt) at[d.id] = d.resolvedAt;
+  }
+  return { resolvedThreadIds: entry.resolvedThreadIds, resolvedAt: at };
+}
+
 function submit(
   store: Store<StoreSchema>,
   item: ReviewItemSummary,
@@ -188,17 +241,28 @@ export function maybeAutoReviewOnPoll(store: Store<StoreSchema>, item: ReviewIte
   void (async (): Promise<void> => {
     try {
       const discussions = await createGitProvider(cfg).fetchDiscussions(item);
-      const current = resolvedIds(discussions);
       const cache = store.get('reviewCache') ?? {};
       const entry = cache[item.id];
       if (!entry) return;
       if (!entry.resolvedThreadIds) {
         // 구버전 캐시(기준 없음)는 지금 상태를 기준으로 — 다음 해결부터 검증이 걸린다
-        entry.resolvedThreadIds = current;
+        entry.resolvedThreadIds = resolvedIds(discussions);
         store.set('reviewCache', cache);
         return;
       }
-      const fresh = newlyResolved(entry.resolvedThreadIds, current);
+      if (!entry.resolvedAt) {
+        // 0.5.8 이전 캐시 — 해결 시각 기준을 지금 채워야 재해결(열었다 닫음)이 잡힌다
+        entry.resolvedAt = seedResolvedAt(entry, discussions).resolvedAt;
+        store.set('reviewCache', cache);
+      }
+      // 다시 열린 스레드는 기록에서 제거 — 재해결 시 새 해결로 잡히게
+      const pruned = pruneUnresolved(entry, discussions);
+      if (pruned.resolvedThreadIds!.length !== entry.resolvedThreadIds.length) {
+        entry.resolvedThreadIds = pruned.resolvedThreadIds;
+        entry.resolvedAt = pruned.resolvedAt;
+        store.set('reviewCache', cache);
+      }
+      const fresh = threadsToVerify(entry, discussions);
       if (fresh.length === 0) return;
       // 전체 재리뷰가 아니라 해결 검증만 — 재리뷰 댓글이 새 스레드를 만들어
       // 해결 → 리뷰 → 해결 무한 반복이 되는 것을 막는다

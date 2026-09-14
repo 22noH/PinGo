@@ -57,6 +57,7 @@ interface GitLabDiscussionNote {
   system: boolean;
   resolvable?: boolean;
   resolved?: boolean;
+  resolved_at?: string | null;
 }
 
 interface GitLabDiscussion {
@@ -181,8 +182,13 @@ export class GitLabProvider implements GitProvider {
       const resolvable = d.notes.filter((n) => n.resolvable);
       const resolved =
         resolvable.length > 0 ? resolvable.every((n) => n.resolved === true) : undefined;
+      // 재해결 감지용 — 노트 중 가장 늦은 resolved_at
+      const resolvedAt = resolved
+        ? resolvable.map((n) => n.resolved_at ?? '').filter(Boolean).sort().pop()
+        : undefined;
       return {
         id: d.id,
+        resolvedAt,
         resolved,
         notes: d.notes
           .filter((n) => !n.system)

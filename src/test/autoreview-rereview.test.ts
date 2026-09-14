@@ -129,3 +129,74 @@ test("'all': 남의 MR 도 대상", () => {
   assert.equal(isReviewTarget('all', cfg, others), true);
   assert.equal(isReviewTarget('all', cfg, mine), true);
 });
+
+// ── 재해결 감지 ─────────────────────────────────────────────
+// 한 번 검증돼 수용된 스레드를 사람이 다시 열었다 닫으면 다시 검증돼야 한다(20260914 리포트).
+// id 만 기억하면 영영 안 잡힌다 — GitLab 노트 resolved_at 이 재해결마다 바뀌므로 그걸 기준으로 본다.
+import { pruneUnresolved, seedResolvedAt, threadsToVerify } from '../main/auto-review';
+
+const at = (id: string, resolved: boolean, resolvedAt?: string): Discussion =>
+  ({ id, resolved, resolvedAt, notes: [] } as unknown as Discussion);
+
+test('기록에 없는 해결 → 검증 (기존 동작)', () => {
+  assert.deepEqual(threadsToVerify({ resolvedThreadIds: [] }, [at('a', true, 't1')]), ['a']);
+});
+
+test('수용된 스레드를 다시 열었다 닫으면(resolvedAt 변경) 다시 검증', () => {
+  const entry = { resolvedThreadIds: ['a'], resolvedAt: { a: 't1' } };
+  assert.deepEqual(threadsToVerify(entry, [at('a', true, 't1')]), [], '같은 해결이면 안 함');
+  assert.deepEqual(threadsToVerify(entry, [at('a', true, 't2')]), ['a'], '재해결이면 함');
+});
+
+test('resolvedAt 을 모르는 provider(GitHub) 는 id 기준으로만 판단', () => {
+  const entry = { resolvedThreadIds: ['a'] };
+  assert.deepEqual(threadsToVerify(entry, [at('a', true)]), []);
+});
+
+test('리뷰 이력은 있지만 기준이 없으면(구버전 캐시) 검증 대상 없음', () => {
+  assert.deepEqual(threadsToVerify({}, [at('a', true, 't1')]), []);
+});
+
+test('다시 열린 스레드는 기록에서 빠진다 — 이후 닫으면 새 해결로 잡힌다', () => {
+  const entry = { resolvedThreadIds: ['a', 'b'], resolvedAt: { a: 't1', b: 't1' } };
+  const pruned = pruneUnresolved(entry, [at('a', false), at('b', true, 't1')]);
+  assert.deepEqual(pruned.resolvedThreadIds, ['b']);
+  assert.deepEqual(pruned.resolvedAt, { b: 't1' });
+  assert.deepEqual(threadsToVerify(pruned, [at('a', true, 't2'), at('b', true, 't1')]), ['a']);
+});
+
+test('구버전 캐시(resolvedAt 없음)는 현재 해결 시각으로 기준을 채운다 — 이후 재해결부터 잡힌다', () => {
+  const entry = { resolvedThreadIds: ['a', 'b'] };
+  const seeded = seedResolvedAt(entry, [at('a', true, 't1'), at('b', true), at('c', true, 't9')]);
+  assert.deepEqual(seeded.resolvedAt, { a: 't1' }, '알려진 id 중 시각이 있는 것만');
+  assert.deepEqual(threadsToVerify(seeded, [at('a', true, 't2'), at('b', true)]), ['a']);
+});
+
+// 사용자 결정(20260914): 수용된 검증 댓글이 이미 달린 스레드는 다시 열었다 닫아도 재검증하지 않는다.
+// 검증 댓글이 없거나(게시 실패) 마지막 판정이 미해결이면 닫을 때마다 검증한다.
+import { hasAcceptedVerification } from '../main/auto-review/verify';
+
+const withNotes = (d: Discussion, bodies: string[]): Discussion =>
+  ({ ...d, notes: bodies.map((body, i) => ({ id: String(i), body, author: { id: 1, name: 'bot', username: 'b', avatar_url: '' }, createdAt: '', mentionsCurrentUser: false })) } as Discussion);
+
+test('수용된 검증 댓글(해결 확인/판단 불가)이 있으면 재해결해도 검증 안 함', () => {
+  const entry = { resolvedThreadIds: ['a'], resolvedAt: { a: 't1' } };
+  const ok = withNotes(at('a', true, 't2'), ['지적', `${VERIFY_HEADER}\n\n판정: 해결\n사유: 고침`]);
+  assert.equal(hasAcceptedVerification(ok), true);
+  assert.deepEqual(threadsToVerify(entry, [ok]), []);
+  const unknown = withNotes(at('a', true, 't2'), ['지적', `${VERIFY_HEADER}\n\n⚠️ 판단 불가 — 읽지 못함`]);
+  assert.equal(hasAcceptedVerification(unknown), true);
+  assert.deepEqual(threadsToVerify({ resolvedThreadIds: [] }, [unknown]), [], '기록에 없어도 댓글이 있으면 안 함');
+});
+
+test('검증 댓글이 없거나 마지막 판정이 미해결이면 닫을 때마다 검증', () => {
+  const entry = { resolvedThreadIds: ['a'], resolvedAt: { a: 't1' } };
+  const none = withNotes(at('a', true, 't2'), ['지적', '사람 댓글']);
+  assert.equal(hasAcceptedVerification(none), false);
+  assert.deepEqual(threadsToVerify(entry, [none]), ['a']);
+  const unresolved = withNotes(at('a', true, 't2'), ['지적', `${VERIFY_HEADER}\n\n판정: 미해결\n사유: 남음`]);
+  assert.equal(hasAcceptedVerification(unresolved), false);
+  assert.deepEqual(threadsToVerify(entry, [unresolved]), ['a']);
+  const fixedLater = withNotes(at('a', true, 't2'), [`${VERIFY_HEADER}\n\n판정: 미해결`, `${VERIFY_HEADER}\n\n판정: 해결`]);
+  assert.equal(hasAcceptedVerification(fixedLater), true, '마지막 검증 댓글 기준');
+});
