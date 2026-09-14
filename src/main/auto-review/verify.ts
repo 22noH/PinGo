@@ -100,6 +100,8 @@ export function summarizeVerdicts(verdicts: ThreadVerdict[]): string {
  * 판정 게시: 해결 확인/미해결/판단 불가 모두 스레드 답글로, 미해결이면 스레드를 다시 연다
  * (사람이 진짜 고치고 재해결하면 재검증된다). 수용된 스레드 id 는 캐시에 기록해
  * 같은 해결이 다시 검증을 부르지 않게 한다.
+ * 답글 게시에 실패한 스레드는 수용하지 않고 실패로 던진다 — 수용으로 기록하면 댓글 없이
+ * 영영 남는다(20260914 리포트). 오케스트레이터가 이력에 남기고 백오프 후 다시 검증·게시한다.
  * @returns 이력 요약 한 줄
  */
 export async function postVerdicts(
@@ -109,6 +111,7 @@ export async function postVerdicts(
   store: Store<StoreSchema>,
 ): Promise<string> {
   const accepted: ThreadVerdict[] = [];
+  const failures: string[] = [];
   for (const v of verdicts) {
     try {
       if (v.reply && provider.postReply) {
@@ -131,9 +134,9 @@ export async function postVerdicts(
         `auto-review: 검증 ${v.fixed === true ? '해결 확인' : '판단 불가 — 수용'} ${item.id} (${v.threadId})`,
       );
     } catch (err) {
-      // 답글/재오픈 실패 — 이 해결은 수용 처리해 검증 재시도 루프를 막는다
-      accepted.push(v);
-      log.warn(`auto-review: 검증 게시 실패 ${item.id} (${v.threadId}): ${String(err).slice(0, 200)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      failures.push(`${v.threadId}: ${msg.slice(0, 120)}`);
+      log.warn(`auto-review: 검증 게시 실패 ${item.id} (${v.threadId}): ${msg.slice(0, 200)}`);
     }
   }
   if (accepted.length > 0) {
@@ -151,5 +154,6 @@ export async function postVerdicts(
       store.set('reviewCache', cache);
     }
   }
+  if (failures.length > 0) throw new Error(`검증 답글 게시 실패 — ${failures.join(' | ')}`);
   return summarizeVerdicts(verdicts);
 }
