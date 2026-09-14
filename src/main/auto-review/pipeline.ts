@@ -132,6 +132,7 @@ async function runVerify(
   setPhase('토론 조회');
   const discussions = await createGitProvider(cfg).fetchDiscussions(item);
   const targets = discussions.filter((d) => verifyThreadIds?.includes(d.id));
+  if (targets.length === 0) return { kind: 'verify', verdicts: [] }; // 이력에 "대상 없음" 만 남긴다
   const workspace = await prepareWorkspace(req.payload, setPhase);
   try {
     const verdicts: ThreadVerdict[] = [];

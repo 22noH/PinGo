@@ -28,7 +28,7 @@ import { createPoller, PollerController, PollerSeenState } from './poller';
 import { detectV3ItemEvents } from './poller-events';
 import { createJiraBridge, JiraBridgeController } from './main-jira-bridge';
 import { sendMrNotification } from './notifier';
-import { forceAutoReview, getAutoReviewStatus, maybeAutoReview, onAutoReviewChange, maybeAutoReviewOnPoll } from './auto-review';
+import { forceAutoReview, getAutoReviewStatus, maybeAutoReview, onAutoReviewChange, smartAutoReview, maybeAutoReviewOnPoll } from './auto-review';
 import type { JiraEvent, JiraIssueSummary } from '../shared/types';
 import { JIRA_ISSUE_NEW, LIST_JIRA_UPDATED } from '../shared/constants';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
@@ -418,6 +418,9 @@ function bootstrap(): void {
       openReviewWindow(item);
     },
     onForceReview: (item: ReviewItemSummary): void => {
+      void smartAutoReview(store, item);
+    },
+    onForceFullReview: (item: ReviewItemSummary): void => {
       forceAutoReview(store, item);
     },
     // TEST: 트레이 메뉴에서 목업 리뷰 테스트 시 아래 주석 해제 + TrayHandlers에 콜백 복구

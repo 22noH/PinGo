@@ -32,8 +32,10 @@ interface TrayHandlers {
   onOpenList: () => void;
   onOpenItem: (item: ReviewItemSummary) => void;
   onReviewItem: (item: ReviewItemSummary) => void;
-  /** 자동 리뷰 파이프라인으로 전체 재리뷰 (결과는 MR 댓글로 게시) */
+  /** 자동 리뷰 다시 실행 — 리뷰 댓글이 있으면 해결 검증, 없으면 전체 리뷰 */
   onForceReview: (item: ReviewItemSummary) => void;
+  /** 전체 리뷰를 새로 돌려 새 댓글을 단다 */
+  onForceFullReview: (item: ReviewItemSummary) => void;
   onInstallUpdate: () => void;
   onCheckUpdate: () => void;
   onOpenReleaseNotes: (version: string | null) => void;
@@ -187,8 +189,12 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
               click: (): void => handlers.onReviewItem(item),
             },
             {
-              label: '🔁 자동 리뷰 다시 실행 (댓글 게시)',
+              label: '🔁 자동 리뷰 다시 실행 (리뷰 없으면 리뷰, 있으면 해결 검증)',
               click: (): void => handlers.onForceReview(item),
+            },
+            {
+              label: '📝 전체 리뷰 새로 달기 (새 댓글)',
+              click: (): void => handlers.onForceFullReview(item),
             },
             {
               label: '🌐 브라우저로 열기',

@@ -320,9 +320,8 @@ export interface StoreSchema {
   /**
    * AI 리뷰 결과 캐시.
    *  - headSha: 이 리뷰가 어느 커밋 기준인지 (참고용)
-   *  - resolvedThreadIds: 리뷰 시점에 해결돼 있던 토론 스레드 — 이후 새로 해결된 게
-   *    생기면 그 스레드만 해결 검증한다(지적을 고치고 스레드를 닫는 흐름에 맞춘 트리거).
-   *    토론은 폴링 tick 마다 조회한다 — 댓글 없는 resolve 는 MR updatedAt 을 안 바꾸기 때문.
+   *  - resolvedThreadIds / resolvedAt: 리뷰·검증 시점에 해결돼 있던(수용한) 스레드 기록.
+   *    참고용 — 검증 트리거는 이제 캐시가 아니라 MR 댓글 자체로 판단한다(auto-review/pending.ts).
    */
   reviewCache?: Record<string, {
     markdown: string;
