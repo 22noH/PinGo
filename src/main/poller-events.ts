@@ -15,6 +15,12 @@ import {
   MAX_SEEN_PIPELINE_IDS,
 } from '../shared/constants';
 import type { GitProvider } from './providers/git/git-provider';
+import { createUnavailableTracker, errorSummary } from './poller-unavailable';
+
+// 404 로 확인된 "이 항목/서버엔 없는 기능" — 프로세스 생존 동안 조회를 건너뛴다.
+// (승인 endpoint 가 404 인 MR 을 30초마다 다시 물어 로그를 도배하던 문제, 20260914)
+const approvalUnavailable = createUnavailableTracker();
+const pipelineUnavailable = createUnavailableTracker();
 
 /** FIFO cap 유지 — O(n) 단방향 */
 function capTail(list: string[], max: number): string[] {
@@ -42,6 +48,7 @@ export async function detectPipelineEvents(
 
   for (const provider of providers) {
     if (!provider.fetchRecentPipelines) continue;
+    if (pipelineUnavailable.has(provider.config.id)) continue;
     try {
       const pipelines = await provider.fetchRecentPipelines(signal);
       for (const pl of pipelines) {
@@ -55,7 +62,11 @@ export async function detectPipelineEvents(
         events.push({ kind: 'pipeline_finished', item: match, pipelineInfo: pl });
       }
     } catch (err) {
-      log.warn(`poller-events: pipelines fetch failed (${provider.config.type}): ${String(err).slice(0, 200)}`);
+      if (pipelineUnavailable.markIfNotFound(provider.config.id, err)) {
+        log.info(`poller-events: 파이프라인 API 없음(404) — ${provider.config.type}:${provider.config.id.slice(0, 8)} 이후 조회 생략`);
+      } else {
+        log.warn(`poller-events: pipelines fetch failed (${provider.config.type}): ${errorSummary(err)}`);
+      }
     }
   }
 
@@ -101,11 +112,16 @@ export async function detectApprovalEvents(
   for (const item of openItems) {
     const provider = providerById.get(item.gitConfigId);
     if (!provider?.fetchApprovalStatus) continue;
+    if (approvalUnavailable.has(item.id)) continue;
     try {
       const status = await provider.fetchApprovalStatus(item, signal);
       snapshots.push({ itemId: item.id, status });
     } catch (err) {
-      log.warn(`poller-events: approval fetch failed (${item.id}): ${String(err).slice(0, 200)}`);
+      if (approvalUnavailable.markIfNotFound(item.id, err)) {
+        log.info(`poller-events: 승인 상태 API 없음(404) — ${item.id} 이후 조회 생략`);
+      } else {
+        log.warn(`poller-events: approval fetch failed (${item.id}): ${errorSummary(err)}`);
+      }
     }
   }
 
