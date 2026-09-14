@@ -14,7 +14,7 @@ import { COMMENT_HEADER, isCleanReview, settleClean } from './clean';
 import {
   buildVerifyPrompt, parseVerdict, postVerdicts, unverifiableVerdict, type ThreadVerdict,
 } from './verify';
-import { prepareSlot } from './worktree';
+import { isReadyClone, prepareSlot } from './worktree';
 import { leaseSlot, markBroken, markProvisioned, type SlotLease } from './slot-pool';
 import { createAIProvider } from '../providers/ai/ai-provider';
 import { createGitProvider } from '../providers/git/git-provider';
@@ -79,12 +79,14 @@ export async function prepareWorkspace(
 
     setPhase('클론 슬롯 대기');
     lease = await leaseSlot(key, base, maxSlots, path.sep);
+    // 풀이 처음 보는 슬롯(fresh)이어도 디스크에 완성된 클론이 있으면 재사용된다(앱 재시작 후)
+    const willClone = !(await isReadyClone(lease.dir));
     log.info(
-      `auto-review: 슬롯 ${lease.fresh ? '신규 클론' : '재사용'} ${item.id} → ${lease.dir}`,
+      `auto-review: 슬롯 ${willClone ? '신규 클론' : `재사용${lease.fresh ? '(디스크)' : ''}`} ${item.id} → ${lease.dir}`,
     );
-    setPhase(lease.fresh ? '클론 중 (최초 — 수 분 소요)' : '브랜치 fetch/checkout');
+    setPhase(willClone ? '클론 중 (최초 — 수 분 소요)' : '브랜치 fetch/checkout');
     const t0 = Date.now();
-    await prepareSlot(lease.dir, lease.fresh, u.toString(), item.sourceBranch, item.targetBranch);
+    await prepareSlot(lease.dir, u.toString(), item.sourceBranch, item.targetBranch);
     markProvisioned(key, lease.dir);
     log.info(`auto-review: 작업 트리 준비 완료 ${item.id} (${Math.round((Date.now() - t0) / 1000)}s)`);
     const dir = lease.dir;

@@ -12,8 +12,15 @@
 // ponytail: 슬롯 하나당 7.7GB(작업 트리 + pack 1.34GB). 개수는 설정으로 제한한다.
 //   디스크가 더 문제가 되면 변경 파일 주변만 sparse checkout 하는 쪽으로 간다.
 import { spawn } from 'node:child_process';
-import { mkdir, rm } from 'node:fs/promises';
+import { access, mkdir, rm, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
+
+/**
+ * 클론 완성 표식 — .git 안에 둔다. 슬롯 풀은 메모리라 앱을 다시 켜면 모든 슬롯이 fresh 로
+ * 보이는데, 이 표식이 있는 완성된 클론은 지우지 않고 fetch+checkout 만 한다.
+ * (재시작/업데이트마다 큰 저장소를 수 분씩 다시 받던 문제, 20260914)
+ */
+const READY_MARKER = path.join('.git', 'pingo-ready');
 
 /**
  * git 실행. core.longpaths=true 필수 —
@@ -53,18 +60,16 @@ function tailError(stderr: string): string {
 /**
  * 리뷰용 작업 트리를 준비한다.
  *
- * 슬롯이 비어 있으면(fresh) 클론하고, 이미 클론된 슬롯이면 fetch + checkout 만 한다.
+ * 디스크에 완성된 클론이 없으면 클론하고, 있으면 fetch + checkout 만 한다.
  * 큰 저장소 실측(oneguide): 최초 클론 408초 vs 재사용 8~17초 — 재사용이 이 설계의 전부다.
  *
  * @param dir      슬롯 디렉터리 (slot-pool 이 배정)
- * @param fresh    이 슬롯이 아직 클론되지 않았는지
  * @param cloneUrl 인증(토큰) 주입된 https clone URL — 토큰 주입은 호출측 책임
  * @param branch   리뷰할 브랜치 (source_branch)
  * @param targetBranch diff 기준점 — origin/<target> 으로 받아둔다
  */
 export async function prepareSlot(
   dir: string,
-  fresh: boolean,
   cloneUrl: string,
   branch: string,
   targetBranch?: string,
@@ -72,8 +77,9 @@ export async function prepareSlot(
   if (!cloneUrl) throw new Error('cloneUrl 이 비어 있습니다');
   if (!branch) throw new Error('branch 가 비어 있습니다');
 
-  // 클론된 적 없거나 중간에 깨진 슬롯이면 처음부터
-  if (fresh || !(await isGitRepo(dir))) {
+  // 디스크에 완성된 클론이 있으면 (이 프로세스에서 처음 보는 슬롯이어도) 재사용한다.
+  // 없거나 중간에 깨진(표식 없음) 슬롯이면 처음부터.
+  if (!(await isReadyClone(dir))) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
     await mkdir(path.dirname(dir), { recursive: true });
     // --depth 1 이 아니라 partial clone(blob:none) — 얕은 클론은 merge-base 가 없어
@@ -82,6 +88,7 @@ export async function prepareSlot(
     await git(['clone', '--filter=blob:none', '--no-checkout', cloneUrl, dir]);
     // AI 가 이 안에서 실행하는 git 에도 적용되도록 저장소 config 에 남긴다
     await git(['config', 'core.longpaths', 'true'], dir).catch(() => undefined);
+    await writeFile(path.join(dir, READY_MARKER), new Date().toISOString(), 'utf-8');
   }
 
   await git(['fetch', '--filter=blob:none', 'origin', `${branch}:refs/remotes/origin/${branch}`], dir);
@@ -94,15 +101,35 @@ export async function prepareSlot(
   }
   // detach 로 체크아웃 — 로컬 브랜치를 만들면 다음 재사용 때 이름이 충돌한다.
   // -f: 이전 리뷰가 남긴 변경(AI 가 건드렸을 수도)을 버리고 깨끗한 상태로 맞춘다.
-  await git(['checkout', '--detach', '-f', `origin/${branch}`], dir);
+  try {
+    await git(['checkout', '--detach', '-f', `origin/${branch}`], dir);
+  } catch (err) {
+    // 체크아웃 실패는 저장소 상태 문제일 가능성이 높다 — 표식을 지워 다음엔 처음부터 클론
+    // (fetch 실패는 대개 네트워크/인증이라 표식을 유지한다: 재클론은 수 분짜리 비용)
+    await rm(path.join(dir, READY_MARKER), { force: true }).catch(() => undefined);
+    throw err;
+  }
   // 추적되지 않는 잔여 파일 제거 — 이전 브랜치의 산출물이 리뷰에 섞이지 않게
   await git(['clean', '-ffdx'], dir).catch(() => undefined);
 }
 
-/** 이미 유효한 git 저장소인지 */
-async function isGitRepo(dir: string): Promise<boolean> {
+/**
+ * 클론이 끝까지 완료된 유효한 git 저장소인지 — 호출측의 단계 표시용으로도 공개.
+ * 표식이 있으면 완성. 표식이 없는 구버전 슬롯은 HEAD 가 유효한지로 판단한다
+ * (중간에 죽은 클론은 ref 가 안 써져 HEAD 검증이 실패한다) — 업데이트 후 한 번 더 클론하지 않게.
+ */
+export async function isReadyClone(dir: string): Promise<boolean> {
   try {
     await git(['rev-parse', '--git-dir'], dir);
+  } catch {
+    return false;
+  }
+  try {
+    await access(path.join(dir, READY_MARKER));
+    return true;
+  } catch { /* 표식 없음 — 아래에서 HEAD 로 판단 */ }
+  try {
+    await git(['rev-parse', '--verify', '-q', 'HEAD'], dir);
     return true;
   } catch {
     return false;
