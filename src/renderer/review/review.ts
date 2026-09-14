@@ -226,9 +226,14 @@ window.electronAPI.onReviewChunk(({ itemId, chunk }: ReviewChunkPayload): void =
   stream.append(chunk);
 });
 
-window.electronAPI.onReviewDone(({ itemId }: ReviewDonePayload): void => {
+window.electronAPI.onReviewDone(({ itemId, markdown }: ReviewDonePayload): void => {
   const tab = getById(itemId);
   if (!tab) return;
+  // 최종 본문이 따로 오면(도구 사용 중 진행 서술 제외) 스트리밍 버퍼를 교체
+  if (markdown !== undefined) {
+    if (isActive(itemId)) stream.setFullText(markdown);
+    tab.buffer = markdown;
+  }
   const text = isActive(itemId) ? stream.getFullText() : tab.buffer;
   if (isActive(itemId)) {
     stream.finalize();

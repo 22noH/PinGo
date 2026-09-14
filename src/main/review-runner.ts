@@ -20,6 +20,8 @@ const systemPrompt = (hasRepo: boolean, targetBranch: string): string => `당신
 **출력 규칙**: 첫 글자부터 바로 리뷰 본문(마크다운 헤딩)으로 시작하세요.
 인사말, 작업 계획, "리뷰하겠습니다"/"확인해보겠습니다" 류의 메타 코멘트,
 소스 접근 가능 여부에 대한 언급을 절대 출력하지 마세요.
+파일을 살펴보는 동안의 진행 서술("I'll start by looking at…", "Let me check…")도 출력하지 마세요 —
+도구 사용이 끝난 뒤 **최종 리뷰 하나만** 출력합니다.
 출력은 **한국어 단일 버전**입니다. 영어로 먼저 쓰고 번역을 덧붙이거나,
 같은 내용을 두 언어로 반복하지 마세요. 코드·식별자·파일 경로만 원문 그대로 두세요.
 ${hasRepo ? sourceWithRepo(targetBranch) : SOURCE_DIFF_ONLY}
@@ -152,7 +154,7 @@ export function buildPrompt(
   item: ReviewItemWithChanges,
   prevReview?: string,
   hasRepo = false,
-): string {
+): ReviewPrompt {
   const allChanges = item.changes;
   const selected = [...allChanges]
     .sort((a, b) => diffChangedLines(b.diff) - diffChangedLines(a.diff))
@@ -161,8 +163,6 @@ export function buildPrompt(
   const providerName = item.providerType === 'gitlab' ? 'GitLab MR' : 'GitHub PR';
 
   const header = [
-    systemPrompt(hasRepo, item.targetBranch),
-    '',
     `## ${providerName} #${item.itemId}`,
     `- 제목: ${item.title}`,
     `- 브랜치: ${item.sourceBranch || '?'} → ${item.targetBranch || '?'}`,
@@ -208,19 +208,35 @@ export function buildPrompt(
   const prevReviewSection = buildPrevReviewSection(prevReview);
   const discussionsSection = buildDiscussionsSection(item.discussions ?? []);
 
-  return `${header}${sections.join('\n')}${omittedSection}${prevReviewSection}${discussionsSection}`;
+  return {
+    system: systemPrompt(hasRepo, item.targetBranch),
+    user: `${header}${sections.join('\n')}${omittedSection}${prevReviewSection}${discussionsSection}`,
+  };
 }
 
 export interface RunHandle extends AIStreamHandle {}
 
-/** AIProvider로 리뷰 스트리밍 실행. cwd 를 주면 CLI provider 가 그 디렉터리에서 실행된다. */
+/**
+ * 리뷰 프롬프트 — 지시문(system)과 내용(user)을 나눈다.
+ * CLI 는 system 을 자체 시스템 프롬프트에 덧붙여 보내야 언어·양식 지시가 먹는다.
+ * 전부 user 로 보내면 diff 수만 자 뒤에 묻혀 영어 리뷰가 나온다(20260914 리포트).
+ */
+export interface ReviewPrompt {
+  system: string;
+  user: string;
+}
+
+/**
+ * AIProvider로 리뷰 스트리밍 실행. cwd 를 주면 CLI provider 가 그 디렉터리에서 실행된다.
+ * onDone 의 finalText 가 있으면 그것이 최종 본문(도구 사용 중 진행 서술 제외).
+ */
 export function runReview(
   provider: AIProvider,
-  prompt: string,
+  prompt: ReviewPrompt,
   onChunk: (s: string) => void,
-  onDone: () => void,
+  onDone: (finalText?: string) => void,
   onError: (e: Error) => void,
   cwd?: string,
 ): RunHandle {
-  return provider.streamReview(prompt, onChunk, onDone, onError, cwd);
+  return provider.streamReview(prompt.user, onChunk, onDone, onError, cwd, prompt.system);
 }

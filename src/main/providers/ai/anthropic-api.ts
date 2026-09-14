@@ -28,14 +28,17 @@ export class AnthropicAPIProvider implements AIProvider {
   streamReview(
     prompt: string,
     onChunk: (text: string) => void,
-    onDone: () => void,
+    onDone: (finalText?: string) => void,
     onError: (err: Error) => void,
+    _cwd?: string,
+    system?: string,
   ): AIStreamHandle {
     let aborted = false;
     let settled = false;
     const stream = this.client.messages.stream({
       model: this.config.model,
       max_tokens: 8192,
+      ...(system ? { system } : {}),
       messages: [{ role: 'user', content: prompt }],
     });
 

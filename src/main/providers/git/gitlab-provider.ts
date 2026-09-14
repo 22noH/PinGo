@@ -101,6 +101,10 @@ function classifyGitLabError(err: unknown): Error {
   return new Error('알 수 없는 GitLab 오류');
 }
 
+/** 열린 MR 목록 페이지 크기 / 최대 페이지 수 — 200건까지 본다 */
+const OPEN_ITEMS_PER_PAGE = 50;
+const MAX_OPEN_ITEM_PAGES = 4;
+
 export class GitLabProvider implements GitProvider {
   readonly config: GitLabConfig;
   private readonly client: AxiosInstance;
@@ -118,11 +122,10 @@ export class GitLabProvider implements GitProvider {
       (err: unknown) => {
         if (axios.isAxiosError(err)) {
           const status = err.response?.status;
-          const safe = maskHeaders(err.config?.headers as AxiosRequestHeaders | undefined);
-          log.warn(
-            `gitlab[${this.config.id.slice(0, 8)}]: status=${status ?? 'n/a'} url=${err.config?.url ?? ''}`,
-            safe,
-          );
+          const head = `gitlab[${this.config.id.slice(0, 8)}]: status=${status ?? 'n/a'} url=${err.config?.url ?? ''}`;
+          // 404 는 호출측이 "기능 없음" 으로 처리하는 정상 경로 — 헤더 덤프 없이 debug 로만
+          if (status === 404) log.debug(head);
+          else log.warn(head, maskHeaders(err.config?.headers as AxiosRequestHeaders | undefined));
         }
         return Promise.reject(err);
       },
@@ -132,17 +135,26 @@ export class GitLabProvider implements GitProvider {
   async fetchOpenItems(signal?: AbortSignal): Promise<ReviewItemSummary[]> {
     // 사용자 필터 없음 — token이 접근 가능한 모든 open MR. "올라오면 무조건 알람".
     // 리뷰어 지정/멘션 감지는 item.reviewers 및 note.mentionsCurrentUser 로 별도 처리.
-    const res = await this.client.get<GitLabMRListItem[]>('/merge_requests', {
-      params: {
-        scope: 'all',
-        state: 'opened',
-        order_by: 'updated_at',
-        sort: 'desc',
-        per_page: 50,
-      },
-      signal,
-    });
-    return res.data.map((raw) => this.normalize(raw));
+    // 페이지를 따라간다 — 한 페이지(50건)만 보면 오래된 열린 MR 은 목록에서 빠져
+    // 자동 리뷰가 영영 안 잡히고, 캐시까지 정리돼 다시 보일 때 중복 리뷰가 달린다.
+    const all: GitLabMRListItem[] = [];
+    for (let page = 1; page <= MAX_OPEN_ITEM_PAGES; page += 1) {
+      const res = await this.client.get<GitLabMRListItem[]>('/merge_requests', {
+        params: {
+          scope: 'all',
+          state: 'opened',
+          order_by: 'updated_at',
+          sort: 'desc',
+          per_page: OPEN_ITEMS_PER_PAGE,
+          page,
+        },
+        signal,
+      });
+      all.push(...res.data);
+      const next = String(res.headers['x-next-page'] ?? '').trim();
+      if (!next || res.data.length < OPEN_ITEMS_PER_PAGE) break;
+    }
+    return all.map((raw) => this.normalize(raw));
   }
 
   async fetchChanges(item: ReviewItemSummary): Promise<ReviewItemWithChanges> {

@@ -7,7 +7,7 @@ import type {
   AIAvailabilityTestResult,
   OllamaConfig,
 } from '../../../shared/types';
-import type { AIProvider, AIStreamHandle } from './ai-provider';
+import { withSystem, type AIProvider, type AIStreamHandle } from './ai-provider';
 
 interface OllamaGenerateChunk {
   response?: string;
@@ -37,11 +37,14 @@ export class OllamaProvider implements AIProvider {
   }
 
   streamReview(
-    prompt: string,
+    userPrompt: string,
     onChunk: (text: string) => void,
-    onDone: () => void,
+    onDone: (finalText?: string) => void,
     onError: (err: Error) => void,
+    _cwd?: string,
+    system?: string,
   ): AIStreamHandle {
+    const prompt = withSystem(userPrompt, system);
     const url = new URL(`${this.getBaseUrl()}/api/generate`);
     const body = JSON.stringify({
       model: this.config.model,

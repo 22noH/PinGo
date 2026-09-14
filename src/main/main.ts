@@ -28,7 +28,7 @@ import { createPoller, PollerController, PollerSeenState } from './poller';
 import { detectV3ItemEvents } from './poller-events';
 import { createJiraBridge, JiraBridgeController } from './main-jira-bridge';
 import { sendMrNotification } from './notifier';
-import { forceAutoReview, getAutoReviewStatus, maybeAutoReview, maybeAutoReviewOnPoll } from './auto-review';
+import { forceAutoReview, getAutoReviewStatus, maybeAutoReview, onAutoReviewChange, maybeAutoReviewOnPoll } from './auto-review';
 import type { JiraEvent, JiraIssueSummary } from '../shared/types';
 import { JIRA_ISSUE_NEW, LIST_JIRA_UPDATED } from '../shared/constants';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
@@ -441,6 +441,8 @@ function bootstrap(): void {
 
   tray.updateRecentItems(store.get('recentItems'));
   tray.updateInteractions(store.get('interactions') ?? {});
+  // 자동 리뷰 단계/대기열/결과가 바뀌면 메뉴를 다시 만든다 — 30초 tick 을 기다리지 않게
+  onAutoReviewChange((): void => tray?.refresh());
   setTrayState(settings.notificationEnabled ? 'ACTIVE' : 'MUTED');
 
   registerIpcHandlers({

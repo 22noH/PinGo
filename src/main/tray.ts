@@ -9,6 +9,8 @@ import type {
   TrayState,
 } from '../shared/types';
 import { MAX_RECENT_ITEMS, NEW_MR_BLINK_INTERVAL_MS } from '../shared/constants';
+import type { AutoReviewStatus } from './auto-review/status';
+import { buildAutoReviewMenu } from './tray-auto-review';
 
 export interface TrayController {
   getState(): TrayState;
@@ -19,6 +21,8 @@ export interface TrayController {
   updateHealth(health: ConnectionHealth[]): void;
   /** 다운로드 완료된 업데이트 버전 표시 (null 이면 항목 숨김) */
   setUpdateReady(version: string | null): void;
+  /** 메뉴 재구성 — 자동 리뷰 현황이 바뀔 때 호출 */
+  refresh(): void;
   destroy(): void;
 }
 
@@ -33,8 +37,8 @@ interface TrayHandlers {
   onInstallUpdate: () => void;
   onCheckUpdate: () => void;
   onOpenReleaseNotes: (version: string | null) => void;
-  /** 자동 리뷰 진행 현황 — 메뉴에 표시 */
-  getAutoReviewStatus: () => { active: number; queued: number };
+  /** 자동 리뷰 진행 현황 — 서브메뉴로 표시 */
+  getAutoReviewStatus: () => AutoReviewStatus;
   onQuit: () => void;
 }
 
@@ -148,14 +152,10 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
       label: statusLabel(state, lastCheckedAt, health),
       enabled: false,
     });
-    // 자동 리뷰는 백그라운드라 아무 표시가 없으면 "동작을 안 한다" 로 보인다 — 진행 상황 노출
-    const ar = handlers.getAutoReviewStatus();
-    if (ar.active > 0 || ar.queued > 0) {
-      items.push({
-        label: `🧠 자동 리뷰 ${ar.active}건 진행 중${ar.queued > 0 ? ` (대기 ${ar.queued})` : ''}`,
-        enabled: false,
-      });
-    }
+    // 자동 리뷰는 백그라운드라 아무 표시가 없으면 "동작을 안 한다" 로 보인다 —
+    // 항목별 단계·대기열·최근 결과를 서브메뉴로 노출
+    const ar = buildAutoReviewMenu(handlers.getAutoReviewStatus(), Date.now(), handlers.onOpenItem);
+    if (ar) items.push(ar);
     items.push({ type: 'separator' });
 
     const toggleLabel = state === 'MUTED' ? '🔕 알림 꺼짐' : '🔔 알림 켜짐';
@@ -270,6 +270,7 @@ export function createTray(iconDir: string, handlers: TrayHandlers): TrayControl
       updateReadyVersion = version;
       refreshMenu();
     },
+    refresh: refreshMenu,
     destroy: (): void => {
       stopBlink();
       tray.destroy();

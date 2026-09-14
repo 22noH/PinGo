@@ -32,14 +32,40 @@ const ITEM: ReviewItemWithChanges = {
 
 test('clone 있음 → 프롬프트가 파일 직접 열람을 지시한다', () => {
   const withRepo = buildPrompt(ITEM, undefined, true);
-  assert.ok(withRepo.includes('저장소가 클론되어'), '클론 안내가 있어야 한다');
-  assert.ok(!withRepo.includes('diff 만으로 리뷰하세요'), 'diff 전용 제한이 남아 있으면 안 된다');
+  assert.ok(withRepo.system.includes('저장소가 클론되어'), '클론 안내가 있어야 한다');
+  assert.ok(!withRepo.system.includes('diff 만으로 리뷰하세요'), 'diff 전용 제한이 남아 있으면 안 된다');
 });
 
 test('clone 없음 → 기존 diff 전용 지침 유지', () => {
   const diffOnly = buildPrompt(ITEM);
-  assert.ok(diffOnly.includes('diff 만으로 리뷰하세요'));
-  assert.ok(!diffOnly.includes('저장소가 클론되어'));
+  assert.ok(diffOnly.system.includes('diff 만으로 리뷰하세요'));
+  assert.ok(!diffOnly.system.includes('저장소가 클론되어'));
+});
+
+// 지시문(역할·한국어·양식)은 system, MR 내용(diff)은 user 로 나뉘어야 한다.
+// 전부 user 로 보내면 CLI 자체 시스템 프롬프트(영어·간결체)에 밀려 영어 리뷰가 나온다(20260914 리포트).
+test('프롬프트 분리: 지시문은 system, diff 는 user', () => {
+  const p = buildPrompt(ITEM, undefined, true);
+  assert.ok(p.system.includes('한국어'), 'system 에 언어 규칙');
+  assert.ok(p.system.includes('## 종합 평가'), 'system 에 양식');
+  assert.ok(p.system.includes('진행 서술'), '도구 사용 중 진행 서술 금지 규칙');
+  assert.ok(p.user.includes('+const a = 1;'), 'user 에 diff');
+  assert.ok(!p.user.includes('시니어 코드 리뷰어'), 'user 에 지시문이 섞이지 않는다');
+});
+
+test('runReview: system 프롬프트가 AI provider 로 전달된다', () => {
+  let seenSystem: string | undefined;
+  const fake: AIProvider = {
+    config: { type: 'claude-cli' },
+    streamReview: (_p, _c, onDone, _e, _cwd, system): AIStreamHandle => {
+      seenSystem = system;
+      onDone();
+      return { abort: (): void => undefined };
+    },
+    testAvailability: () => Promise.resolve({ success: true }),
+  };
+  runReview(fake, { system: 'SYS', user: 'USER' }, () => undefined, () => undefined, () => undefined);
+  assert.equal(seenSystem, 'SYS');
 });
 
 test('runReview: cwd 가 AI provider 로 전달된다', () => {
@@ -53,6 +79,6 @@ test('runReview: cwd 가 AI provider 로 전달된다', () => {
     },
     testAvailability: () => Promise.resolve({ success: true }),
   };
-  runReview(fake, 'p', () => undefined, () => undefined, () => undefined, '/tmp/pingo-review-x');
+  runReview(fake, { system: 's', user: 'p' }, () => undefined, () => undefined, () => undefined, '/tmp/pingo-review-x');
   assert.equal(seen, '/tmp/pingo-review-x');
 });

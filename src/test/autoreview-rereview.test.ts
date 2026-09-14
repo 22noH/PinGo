@@ -3,7 +3,7 @@
 // 이 가드가 느슨해지면 폴링(30초)마다 팀이 보는 MR 에 AI 댓글이 쌓인다.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DISCUSSION_RECHECK_MS, newlyResolved, resolvedIds, shouldCheckDiscussions } from '../main/auto-review';
+import { newlyResolved, resolvedIds, verifyKey } from '../main/auto-review';
 import type { Discussion } from '../shared/types';
 
 const thread = (id: string, resolved: boolean | undefined): Discussion => ({
@@ -28,28 +28,11 @@ test('리뷰 이력이 없으면 재리뷰 경로 아님 (첫 리뷰가 담당)'
   assert.deepEqual(newlyResolved(undefined, ['a', 'b']), []);
 });
 
-// ── 토론 조회 게이트 ───────────────────────────────────────
-// 댓글 없는 resolve 는 GitLab 이 MR updatedAt 을 안 바꾼다 — updatedAt 만 믿으면
-// 그 해결은 영영 검증되지 않는다(20260813 버그). 주기 재조회가 안전망.
-test('updatedAt 이 바뀌면 즉시 토론 조회', () => {
-  const now = Date.parse('2026-08-13T00:00:00Z');
-  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1', discussionsCheckedAt: new Date(now).toISOString() }, 't2', now), true);
-});
-
-test('updatedAt 그대로 + 최근에 조회함 → 건너뜀 (API 아끼기)', () => {
-  const now = Date.parse('2026-08-13T00:00:00Z');
-  const justChecked = new Date(now - 1000).toISOString();
-  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1', discussionsCheckedAt: justChecked }, 't1', now), false);
-});
-
-test('updatedAt 그대로여도 조회가 오래됐으면 다시 본다 — 댓글 없는 resolve 감지', () => {
-  const now = Date.parse('2026-08-13T00:00:00Z');
-  const stale = new Date(now - DISCUSSION_RECHECK_MS).toISOString();
-  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1', discussionsCheckedAt: stale }, 't1', now), true);
-});
-
-test('조회 시각 기록이 없으면(구버전 캐시) 조회한다', () => {
-  assert.equal(shouldCheckDiscussions({ seenUpdatedAt: 't1' }, 't1', Date.now()), true);
+// 댓글 없는 resolve 는 GitLab 이 MR updatedAt 을 안 바꾼다 — 그래서 토론은 폴링 tick 마다 본다
+// (게이트 없음). 대신 같은 MR 의 검증이 이미 실행/대기 중이면 건너뛴다(auto-review.ts).
+test('검증 요청 key 는 전체 리뷰 key 와 다르다 — 서로 덮거나 버리지 않게', () => {
+  assert.notEqual(verifyKey('cfg::gitlab::1::42'), 'cfg::gitlab::1::42');
+  assert.ok(verifyKey('cfg::gitlab::1::42').startsWith('cfg::gitlab::1::42'));
 });
 
 test('resolved 가 undefined 인 일반 코멘트는 해결로 치지 않는다', () => {
@@ -85,11 +68,12 @@ test('판정: 미해결 → 스레드 다시 연다', () => {
   assert.equal(v.fixed, false);
 });
 
-test('양식 미준수/변형 표기는 판단 불가 — 사람 판단 존중(수용, 답글 없음)', () => {
+test('양식 미준수/변형 표기는 판단 불가 — 사람 판단 존중(수용), 답글로 그 사실을 남긴다', () => {
   assert.equal(parseVerdict('t', '해결된 것 같습니다.').fixed, null);
-  assert.equal(parseVerdict('t', '판정: 해결되지 않음').fixed, null, '변형 표기는 미해결로 오판하지 않는다');
+  assert.equal(parseVerdict('t', '판정: 해결되지 않음').fixed, null, '부정 표기는 해결로 오판하지 않는다');
+  assert.equal(parseVerdict('t', '판정: 해결 안 됨').fixed, null);
   assert.equal(parseVerdict('t', '').fixed, null);
-  assert.equal(parseVerdict('t', '').reply, '', '출력이 비면 답글도 없다');
+  assert.match(parseVerdict('t', '').reply, /판단 불가/, '출력이 비어도 답글은 남긴다');
 });
 
 // ── 지적 없음 판정 ─────────────────────────────────────────

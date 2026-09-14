@@ -103,3 +103,94 @@ test('resolved 감지(B안): resolved 스레드만 리뷰 대상에서 제외', 
 
 // AutoReviewRequest 타입 참조 유지 (import 사용 확인)
 export type _Req = AutoReviewRequest<void>;
+
+// ── 단계 추적 · 이력 · 동시 상한 변경 ──────────────────────────────
+
+function harness2(max: number) {
+  const gates = new Map<string, ReturnType<typeof deferred<string>>>();
+  const changes: number[] = [];
+  const orch = new AutoReviewOrchestrator<string, string>({
+    maxConcurrent: max,
+    runReview: (req, _signal, setPhase) => {
+      setPhase('AI 리뷰');
+      const d = deferred<string>();
+      gates.set(req.key, d);
+      return d.promise;
+    },
+    postResult: (_req, result) => Promise.resolve(result === 'FAIL' ? Promise.reject(new Error('게시 실패')) : `게시: ${result}`),
+    onChange: () => { changes.push(1); },
+  });
+  const submit = (key: string, payload = key) => orch.submit({ key, payload });
+  const finish = async (key: string, result = `r:${key}`) => {
+    gates.get(key)!.resolve(result);
+    await tick();
+    await tick();
+  };
+  return { orch, submit, finish, changes };
+}
+
+test('단계 추적: 실행 중 요청의 현재 단계와 시작 시각이 스냅샷에 보인다', () => {
+  const h = harness2(1);
+  h.submit('k0');
+  h.submit('k1');
+  const s = h.orch.snapshot();
+  assert.equal(s.active.length, 1);
+  assert.equal(s.active[0].key, 'k0');
+  assert.equal(s.active[0].phase, 'AI 리뷰');
+  assert.ok(s.active[0].startedAt > 0);
+  assert.deepEqual(s.queued.map((q) => q.key), ['k1']);
+});
+
+test('이력: 완료 결과 요약과 실패 사유가 최근 순으로 남는다', async () => {
+  const h = harness2(2);
+  h.submit('ok');
+  h.submit('bad');
+  await h.finish('ok', 'REVIEW');
+  await h.finish('bad', 'FAIL');
+  const s = h.orch.snapshot();
+  assert.equal(s.recent.length, 2);
+  assert.equal(s.recent[0].key, 'bad', '최근 것이 앞');
+  assert.equal(s.recent[0].ok, false);
+  assert.match(s.recent[0].summary, /게시 실패/);
+  assert.equal(s.recent[1].key, 'ok');
+  assert.equal(s.recent[1].ok, true);
+  assert.equal(s.recent[1].summary, '게시: REVIEW');
+  assert.ok(s.recent[0].at >= s.recent[1].at);
+});
+
+test('이력: 상한(20건)을 넘으면 오래된 것부터 버린다', async () => {
+  const h = harness2(50);
+  for (let i = 0; i < 25; i++) h.submit(`k${i}`);
+  for (let i = 0; i < 25; i++) await h.finish(`k${i}`);
+  assert.equal(h.orch.snapshot().recent.length, 20);
+  assert.equal(h.orch.snapshot().recent[0].key, 'k24');
+});
+
+test('submit 반환값: 새로 접수/대기 교체는 true, 실행 중 중복은 false', () => {
+  const h = harness2(1);
+  assert.equal(h.submit('k0'), true);
+  assert.equal(h.submit('k1'), true);
+  assert.equal(h.submit('k1', 'newer'), true, '대기 중 교체도 접수로 본다');
+  assert.equal(h.submit('k0'), false, '실행 중 중복은 버려진다');
+  assert.equal(h.orch.has('k0'), true);
+  assert.equal(h.orch.has('k1'), true);
+  assert.equal(h.orch.has('zzz'), false);
+});
+
+test('동시 상한 변경: 재생성 없이 반영되고 대기열이 유지된다', () => {
+  const h = harness2(1);
+  for (let i = 0; i < 4; i++) h.submit(`k${i}`);
+  assert.equal(h.orch.activeCount, 1);
+  h.orch.setMaxConcurrent(3);
+  assert.equal(h.orch.activeCount, 3, '상한을 올리면 대기열에서 즉시 채운다');
+  assert.equal(h.orch.queuedCount, 1);
+});
+
+test('onChange: 접수·단계 변경·완료 때마다 호출된다', async () => {
+  const h = harness2(1);
+  h.submit('k0');
+  const afterSubmit = h.changes.length;
+  assert.ok(afterSubmit >= 1, '접수 시점');
+  await h.finish('k0');
+  assert.ok(h.changes.length > afterSubmit, '완료 시점');
+});

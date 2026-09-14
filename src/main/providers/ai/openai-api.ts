@@ -6,7 +6,7 @@ import type {
   OpenAIAPIConfig,
 } from '../../../shared/types';
 import { DEFAULT_OPENAI_BASE_URL } from '../../../shared/constants';
-import type { AIProvider, AIStreamHandle } from './ai-provider';
+import { withSystem, type AIProvider, type AIStreamHandle } from './ai-provider';
 
 /**
  * OpenAI 호환 Chat Completions API 를 공식 SDK(`openai`)로 호출.
@@ -28,11 +28,14 @@ export class OpenAIAPIProvider implements AIProvider {
   }
 
   streamReview(
-    prompt: string,
+    userPrompt: string,
     onChunk: (text: string) => void,
-    onDone: () => void,
+    onDone: (finalText?: string) => void,
     onError: (err: Error) => void,
+    _cwd?: string,
+    system?: string,
   ): AIStreamHandle {
+    const prompt = withSystem(userPrompt, system);
     const controller = new AbortController();
     let aborted = false;
     let settled = false;

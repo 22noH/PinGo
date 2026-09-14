@@ -316,18 +316,14 @@ export interface StoreSchema {
    * AI 리뷰 결과 캐시.
    *  - headSha: 이 리뷰가 어느 커밋 기준인지 (참고용)
    *  - resolvedThreadIds: 리뷰 시점에 해결돼 있던 토론 스레드 — 이후 새로 해결된 게
-   *    생기면 재리뷰한다(지적을 고치고 스레드를 닫는 흐름에 맞춘 트리거)
-   *  - seenUpdatedAt: 마지막으로 확인한 MR updatedAt — 변화 없으면 API 호출을 건너뛴다
-   *  - discussionsCheckedAt: 마지막 토론 조회 시각 — 댓글 없는 resolve 는 MR updatedAt 을
-   *    안 바꾸므로, 이 시각 기준으로 주기적으로라도 토론을 다시 본다
+   *    생기면 그 스레드만 해결 검증한다(지적을 고치고 스레드를 닫는 흐름에 맞춘 트리거).
+   *    토론은 폴링 tick 마다 조회한다 — 댓글 없는 resolve 는 MR updatedAt 을 안 바꾸기 때문.
    */
   reviewCache?: Record<string, {
     markdown: string;
     updatedAt: string;
     headSha?: string;
     resolvedThreadIds?: string[];
-    seenUpdatedAt?: string;
-    discussionsCheckedAt?: string;
   }>;
 }
 
@@ -345,6 +341,11 @@ export interface ReviewChunkPayload {
 
 export interface ReviewDonePayload {
   itemId: string;
+  /**
+   * 최종 본문 — 스트리밍한 텍스트와 다를 때만 온다. 도구를 쓰는 CLI 는 파일을 살펴보는 동안의
+   * 진행 서술까지 청크로 보내므로, 완료 시 이걸로 교체해야 리뷰 앞머리에 영어 서술이 안 남는다.
+   */
+  markdown?: string;
 }
 
 export interface ReviewErrorPayload {

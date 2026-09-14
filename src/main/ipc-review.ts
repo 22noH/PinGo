@@ -93,10 +93,12 @@ export async function runReviewStart(
         const p: ReviewChunkPayload = { itemId: item.id, chunk };
         sendToReview(win, REVIEW_CHUNK, p);
       },
-      (): void => {
+      (finalText?: string): void => {
         release();
         ctx.recordInteraction(item.id, 'reviewed');
-        sendToReview(win, REVIEW_DONE, { itemId: item.id } satisfies ReviewDonePayload);
+        // finalText 가 있으면 렌더러가 스트리밍 버퍼를 이것으로 교체한다(진행 서술 제거)
+        const done: ReviewDonePayload = { itemId: item.id, markdown: finalText };
+        sendToReview(win, REVIEW_DONE, done);
       },
       (err: Error): void => {
         release();

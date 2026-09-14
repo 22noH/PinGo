@@ -6,7 +6,7 @@ import type {
   CodexCLIConfig,
 } from '../../../shared/types';
 import { CODEX_INSTALL_URL } from '../../../shared/constants';
-import type { AIProvider, AIStreamHandle } from './ai-provider';
+import { withSystem, type AIProvider, type AIStreamHandle } from './ai-provider';
 import { resolveCliExecPath, needsShell } from './cli-resolver';
 
 /**
@@ -21,12 +21,14 @@ export class CodexCLIProvider implements AIProvider {
   }
 
   streamReview(
-    prompt: string,
+    userPrompt: string,
     onChunk: (text: string) => void,
-    onDone: () => void,
+    onDone: (finalText?: string) => void,
     onError: (err: Error) => void,
     cwd?: string,
+    system?: string,
   ): AIStreamHandle {
+    const prompt = withSystem(userPrompt, system);
     const execPath = resolveCliExecPath('codex', this.config.execPath);
     const useShell = needsShell(execPath);
 

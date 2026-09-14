@@ -1,5 +1,8 @@
 // providers/ai/claude-cli.ts — Claude CLI 스트리밍 실행 (stream-json)
 import { spawn, spawnSync } from 'child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import * as path from 'path';
 import log from 'electron-log';
 import type {
   AIAvailabilityTestResult,
@@ -7,23 +10,29 @@ import type {
 } from '../../../shared/types';
 import { CLAUDE_INSTALL_URL } from '../../../shared/constants';
 import type { AIProvider, AIStreamHandle } from './ai-provider';
+import { createStreamJsonParser } from './claude-stream-json';
 import { resolveCliExecPath, needsShell } from './cli-resolver';
 
-interface StreamJsonContentBlock {
-  type: string;
-  text?: string;
-}
-
-interface StreamJsonEvent {
-  type: string;
-  subtype?: string;
-  text?: string;
-  message?: {
-    content?: StreamJsonContentBlock[];
-  };
-  result?: string;
-  is_error?: boolean;
-  error?: { message?: string };
+/**
+ * system 지시문을 임시 파일로 써서 `--append-system-prompt-file` 로 넘긴다.
+ * 인자로 직접 주면 Windows 에서 .cmd 경유(shell) 실행 시 줄바꿈·따옴표에 깨진다.
+ * @returns 파일 경로와 정리 함수. 쓰기 실패면 null — 프롬프트 앞머리로 폴백.
+ */
+function writeSystemPromptFile(system: string): { file: string; cleanup: () => void } | null {
+  try {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pingo-sys-'));
+    const file = path.join(dir, 'system.md');
+    writeFileSync(file, system, 'utf-8');
+    return {
+      file,
+      cleanup: (): void => {
+        try { rmSync(dir, { recursive: true, force: true }); } catch { /* 임시 파일 — 무시 */ }
+      },
+    };
+  } catch (err) {
+    log.warn(`claude-cli: system prompt 파일 생성 실패 — 프롬프트 앞머리로 폴백: ${String(err)}`);
+    return null;
+  }
 }
 
 export class ClaudeCLIProvider implements AIProvider {
@@ -36,9 +45,10 @@ export class ClaudeCLIProvider implements AIProvider {
   streamReview(
     prompt: string,
     onChunk: (text: string) => void,
-    onDone: () => void,
+    onDone: (finalText?: string) => void,
     onError: (err: Error) => void,
     cwd?: string,
+    system?: string,
   ): AIStreamHandle {
     const execPath = resolveCliExecPath('claude', this.config.execPath);
     const useShell = needsShell(execPath);
@@ -56,10 +66,16 @@ export class ClaudeCLIProvider implements AIProvider {
         'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git status:*)',
       );
     }
+    // 역할·한국어·양식 지시는 시스템 프롬프트에 덧붙인다. 사용자 메시지(diff 수만 자)에 섞어
+    // 보내면 CLI 자체 시스템 프롬프트(영어·간결체)에 밀려 영어 리뷰가 나온다.
+    const sysFile = system ? writeSystemPromptFile(system) : null;
+    if (sysFile) args.push('--append-system-prompt-file', sysFile.file);
+    const stdinText = system && !sysFile ? `${system}\n\n${prompt}` : prompt;
+
     log.info(
       `claude-cli: spawning ${execPath}${useShell ? ' (via shell)' : ''} ` +
       `model=${model || '(default)'} effort=${effort || '(default)'}` +
-      `${cwd ? ` cwd=${cwd}` : ''}`,
+      `${cwd ? ` cwd=${cwd}` : ''}${sysFile ? ' system=file' : ''}`,
     );
 
     const proc = spawn(
@@ -72,59 +88,22 @@ export class ClaudeCLIProvider implements AIProvider {
     let errored = false;
     let lineBuffer = '';
 
-    let emittedAny = false;
-
-    const handleLine = (line: string): void => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      let event: StreamJsonEvent;
-      try {
-        event = JSON.parse(trimmed) as StreamJsonEvent;
-      } catch {
-        log.debug(`claude-cli: non-JSON line skipped: ${trimmed.slice(0, 200)}`);
-        return;
-      }
-      // 1) assistant 메시지의 content 블록에서 텍스트 추출 (실제 Claude CLI stream-json 포맷)
-      if (event.type === 'assistant' && event.message?.content) {
-        for (const c of event.message.content) {
-          if (c.type === 'text' && typeof c.text === 'string' && c.text.length > 0) {
-            onChunk(c.text);
-            emittedAny = true;
-          }
-        }
-        return;
-      }
-      // 2) 레거시/단순 포맷: {type: 'text', text: '...'}
-      if (event.type === 'text' && typeof event.text === 'string') {
-        onChunk(event.text);
-        emittedAny = true;
-        return;
-      }
-      // 3) result 이벤트 — 에러면 여기서 전달, chunk를 못 받았다면 result.result를 마지막 청크로 보냄
-      if (event.type === 'result') {
-        if (event.is_error) {
-          errored = true;
-          onError(new Error(event.error?.message ?? event.result ?? 'Claude CLI 오류'));
-          return;
-        }
-        if (!emittedAny && typeof event.result === 'string' && event.result.length > 0) {
-          onChunk(event.result);
-          emittedAny = true;
-        }
-        return;
-      }
-      // 4) 독립 error 이벤트
-      if (event.type === 'error') {
+    const parser = createStreamJsonParser({
+      onChunk,
+      onError: (err): void => {
         errored = true;
-        onError(new Error(event.error?.message ?? 'Claude CLI 오류'));
-      }
-    };
+        onError(err);
+      },
+      onSkip: (line): void => {
+        log.debug(`claude-cli: non-JSON line skipped: ${line.slice(0, 200)}`);
+      },
+    });
 
     proc.stdout.on('data', (data: Buffer) => {
       lineBuffer += data.toString('utf-8');
       const lines = lineBuffer.split('\n');
       lineBuffer = lines.pop() ?? '';
-      for (const line of lines) handleLine(line);
+      for (const line of lines) parser.handleLine(line);
     });
 
     proc.stderr.on('data', (data: Buffer) => {
@@ -133,6 +112,7 @@ export class ClaudeCLIProvider implements AIProvider {
 
     proc.on('error', (err: NodeJS.ErrnoException) => {
       errored = true;
+      sysFile?.cleanup();
       if (err.code === 'ENOENT') {
         onError(
           new Error(
@@ -146,8 +126,9 @@ export class ClaudeCLIProvider implements AIProvider {
     });
 
     proc.on('close', (code: number | null) => {
+      sysFile?.cleanup();
       if (lineBuffer.length > 0) {
-        handleLine(lineBuffer);
+        parser.handleLine(lineBuffer);
         lineBuffer = '';
       }
       if (aborted) {
@@ -155,12 +136,19 @@ export class ClaudeCLIProvider implements AIProvider {
         return;
       }
       if (errored) return;
-      if (code === 0) onDone();
-      else onError(new Error(`claude exited with code ${code ?? 'null'}`));
+      if (code === 0) {
+        const final = parser.finalText();
+        if (final !== undefined && final !== parser.streamedText()) {
+          log.info(`claude-cli: 도구 사용 중 진행 서술 ${parser.streamedText().length - final.length}자 제외 — result 텍스트를 본문으로`);
+        }
+        onDone(final);
+      } else {
+        onError(new Error(`claude exited with code ${code ?? 'null'}`));
+      }
     });
 
     try {
-      proc.stdin.write(prompt, 'utf-8');
+      proc.stdin.write(stdinText, 'utf-8');
       proc.stdin.end();
     } catch (err) {
       errored = true;

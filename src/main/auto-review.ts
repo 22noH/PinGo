@@ -1,42 +1,28 @@
-// main/auto-review.ts — 새 MR/PR 감지 시 백그라운드 AI 리뷰 실행
+// main/auto-review.ts — 새 MR/PR 감지 시 백그라운드 AI 리뷰 (진입점·트리거·현황)
 //
-// 흐름: 감지 → 오케스트레이터(동시성/대기열) → 브랜치 clone → AI 리뷰(cwd=클론 경로)
-//       → reviewCache 저장 → MR/PR 에 댓글 게시 → 클론 정리.
+// 흐름: 감지 → 오케스트레이터(동시성/대기열) → 파이프라인(pipeline.ts: 클론 → AI → 게시).
 // 리뷰 창을 열면 기존 캐시 복원 경로(REVIEW_CACHE_LOAD)로 결과가 그대로 표시된다.
-import { tmpdir } from 'node:os';
-import * as path from 'node:path';
+//
+// 트리거 정책:
+//   - 리뷰 이력 없음 → 첫 리뷰. 실패해도 캐시가 안 생기므로 다음 tick 에 다시 잡힌다(백오프 후).
+//   - 리뷰 이력 있음 → 폴링 tick 마다 토론을 조회해, 새로 해결된 스레드만 "해결 검증".
+//     댓글 없는 resolve 는 MR updatedAt 을 안 바꿔서 updatedAt 게이트를 두면 영영 못 잡는다.
 import { shell } from 'electron';
 import log from 'electron-log';
 import type Store from 'electron-store';
-import type { AIConfig, AppSettings, Discussion, GitConfig, ReviewItemSummary, StoreSchema } from '../shared/types';
-import { AutoReviewOrchestrator, createAutoReviewOrchestrator, isResolved, resolveAutoReviewConcurrency, reviewableDiscussions } from './auto-review/orchestrator';
-import type { AutoReviewRequest } from './auto-review/orchestrator';
-import { COMMENT_HEADER, isCleanReview, settleClean } from './auto-review/clean';
-import { buildVerifyPrompt, parseVerdict, postVerdicts, type ThreadVerdict } from './auto-review/verify';
-import { prepareSlot } from './auto-review/worktree';
-import { leaseSlot, markBroken, markProvisioned, type SlotLease } from './auto-review/slot-pool';
-import { createAIProvider } from './providers/ai/ai-provider';
+import type { Discussion, GitConfig, ReviewItemSummary, StoreSchema } from '../shared/types';
+import {
+  AutoReviewOrchestrator, createAutoReviewOrchestrator, isResolved, resolveAutoReviewConcurrency,
+} from './auto-review/orchestrator';
+import type { AutoReviewStatus } from './auto-review/status';
+import { mask, postOne, runOne, type AutoReviewPayload, type ReviewOutcome } from './auto-review/pipeline';
 import { createGitProvider } from './providers/git/git-provider';
 import { sendAutoReviewFailure } from './notifier';
-import { buildPrompt, runReview } from './review-runner';
 
-import { DEFAULT_SLOTS_PER_PROJECT } from '../shared/constants';
+export { prepareWorkspace, resolveSlotsPerProject } from './auto-review/pipeline';
 
-const MAX_CACHED_REVIEW_CHARS = 200_000;
-
-interface AutoReviewPayload {
-  item: ReviewItemSummary;
-  cfg: GitConfig;
-  ai: AIConfig;
-  store: Store<StoreSchema>;
-  /** 있으면 전체 리뷰가 아니라 "이 스레드들의 해결이 진짜인지" 검증만 한다 */
-  verifyThreadIds?: string[];
-}
-
-/** 에러 메시지에서 토큰 마스킹 — clone 실패 stderr 에 인증 URL 이 그대로 실린다 */
-function mask(s: string, secret: string): string {
-  return secret ? s.split(secret).join('***') : s;
-}
+/** 실패한 요청을 같은 key 로 다시 접수하기까지의 최소 간격 — 매 tick 재시도하면 실패 알림이 30초마다 뜬다 */
+export const RETRY_BACKOFF_MS = 10 * 60_000;
 
 /** 내 담당(내가 작성자 or 리뷰어)인지 */
 function isMyItem(cfg: GitConfig, item: ReviewItemSummary): boolean {
@@ -59,189 +45,9 @@ export function isReviewTarget(
   return isMyItem(cfg, item);
 }
 
-/**
- * 리뷰 대상 브랜치를 임시 디렉터리에 클론한다.
- * clone URL 조회를 지원하지 않는 provider(현재 GitHub)나 clone 실패 시 null — diff 만으로 리뷰 진행.
- */
-/** 리뷰 결과 — 전체 리뷰(markdown + 리뷰 시점의 resolved 스레드) 또는 스레드 해결 검증 */
-export type ReviewOutcome =
-  | { kind: 'review'; markdown: string; resolvedThreadIds: string[] }
-  | { kind: 'verify'; verdicts: ThreadVerdict[] };
-
-export async function prepareWorkspace(
-  payload: Pick<AutoReviewPayload, 'item' | 'cfg' | 'store'>,
-): Promise<{ dir: string; release: () => void } | null> {
-  const { item, cfg, store } = payload;
-  const provider = createGitProvider(cfg);
-  if (!provider.fetchRepoCloneUrl) return null;
-
-  const settings = store.get('settings');
-  // 슬롯은 프로젝트 단위. gitConfigId 까지 넣어야 서버가 다른 같은 projectId 가 안 겹친다.
-  const key = `${cfg.id}-${item.projectId}`;
-  const base = settings.mergeWorkDir
-    ? path.join(settings.mergeWorkDir, 'pingo-review')
-    : path.join(tmpdir(), 'pingo-review');
-  const maxSlots = resolveSlotsPerProject(settings);
-
-  let lease: SlotLease | null = null;
-  try {
-    const u = new URL(await provider.fetchRepoCloneUrl(item));
-    u.username = 'oauth2';
-    u.password = cfg.token;
-
-    lease = await leaseSlot(key, base, maxSlots, path.sep);
-    log.info(
-      `auto-review: 슬롯 ${lease.fresh ? '신규 클론' : '재사용'} ${item.id} → ${lease.dir}`,
-    );
-    const t0 = Date.now();
-    await prepareSlot(lease.dir, lease.fresh, u.toString(), item.sourceBranch, item.targetBranch);
-    markProvisioned(key, lease.dir);
-    log.info(`auto-review: 작업 트리 준비 완료 ${item.id} (${Math.round((Date.now() - t0) / 1000)}s)`);
-    const dir = lease.dir;
-    const release = lease.release;
-    return { dir, release };
-  } catch (err) {
-    if (lease) {
-      markBroken(key, lease.dir); // 다음 대여 때 다시 클론하도록
-      lease.release();
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn(`auto-review: 작업 트리 준비 실패 ${item.id} — diff 만으로 진행: ${mask(msg, cfg.token).slice(0, 200)}`);
-    return null;
-  }
-}
-
-/** 검증 실행: 해결된 스레드 각각에 대해 "진짜 고쳐졌나" 만 AI 로 판정 */
-async function runVerify(
-  req: AutoReviewRequest<AutoReviewPayload>,
-  signal: AbortSignal,
-): Promise<ReviewOutcome> {
-  const { item, cfg, ai, verifyThreadIds } = req.payload;
-  const discussions = await createGitProvider(cfg).fetchDiscussions(item);
-  const targets = discussions.filter((d) => verifyThreadIds?.includes(d.id));
-  const workspace = await prepareWorkspace(req.payload);
-  try {
-    const verdicts: ThreadVerdict[] = [];
-    for (const d of targets) {
-      if (signal.aborted) throw new Error('중단됨');
-      if (!workspace) {
-        // 클론 실패 — 코드를 못 보면 판정 불가. 사람 판단을 존중해 조용히 수용.
-        verdicts.push({ threadId: d.id, fixed: null, reply: '' });
-        continue;
-      }
-      let out = '';
-      await new Promise<void>((resolve, reject) => {
-        const handle = runReview(
-          createAIProvider(ai),
-          buildVerifyPrompt(d, item.targetBranch),
-          (chunk: string): void => { out += chunk; },
-          resolve,
-          reject,
-          workspace.dir,
-        );
-        signal.addEventListener('abort', () => {
-          handle.abort();
-          reject(new Error('중단됨'));
-        }, { once: true });
-      });
-      verdicts.push(parseVerdict(d.id, out));
-    }
-    return { kind: 'verify', verdicts };
-  } finally {
-    workspace?.release();
-  }
-}
-
-/** 리뷰 1건 실행: clone → 변경/토론 수집 → AI. */
-async function runOne(
-  req: AutoReviewRequest<AutoReviewPayload>,
-  signal: AbortSignal,
-): Promise<ReviewOutcome> {
-  if (req.payload.verifyThreadIds) return runVerify(req, signal);
-  const { item, cfg, ai, store } = req.payload;
-  const provider = createGitProvider(cfg);
-
-  const [full, discussions] = await Promise.all([
-    provider.fetchChanges(item),
-    provider.fetchDiscussions(item).catch((): [] => []),
-  ]);
-  // resolved 스레드는 제외 — 이미 정리된 지적을 다시 댓글로 달지 않기 위함
-  full.discussions = reviewableDiscussions(discussions);
-  // 이번 리뷰 시점의 해결된 스레드 — 이후 새로 해결되는 게 생기면 재리뷰 트리거
-  const resolvedThreadIds = resolvedIds(discussions);
-
-  // clone 은 API 호출 뒤에 — 병렬로 돌리면 API 가 먼저 실패했을 때 클론 디렉터리가 미아가 된다
-  const workspace = await prepareWorkspace(req.payload);
-  try {
-    if (signal.aborted) throw new Error('중단됨');
-    // 이전 리뷰가 있으면(재리뷰) 프롬프트에 포함 — 지적별 해결 여부를 명시한 리뷰가 나온다
-    const prevReview = (store.get('reviewCache') ?? {})[item.id]?.markdown;
-    const prompt = buildPrompt(full, prevReview, workspace !== null);
-    let markdown = '';
-    await new Promise<void>((resolve, reject) => {
-      const handle = runReview(
-        createAIProvider(ai),
-        prompt,
-        (chunk: string): void => { markdown += chunk; },
-        resolve,
-        reject,
-        workspace?.dir,
-      );
-      signal.addEventListener('abort', () => {
-        handle.abort();
-        reject(new Error('중단됨'));
-      }, { once: true });
-    });
-    if (!markdown.trim()) throw new Error('빈 리뷰 결과');
-    return { kind: 'review', markdown, resolvedThreadIds };
-  } finally {
-    // 슬롯은 지우지 않는다 — 재사용이 이 설계의 전부다. 반납만 한다.
-    workspace?.release();
-  }
-}
-
-/** 리뷰 완료 후: 캐시 저장 → MR/PR 댓글 게시. 검증 결과는 스레드 답글로. */
-async function postOne(
-  req: AutoReviewRequest<AutoReviewPayload>,
-  outcome: ReviewOutcome,
-): Promise<void> {
-  const { item, cfg, store } = req.payload;
-  if (outcome.kind === 'verify') {
-    await postVerdicts(createGitProvider(cfg), item, outcome.verdicts, store);
-    return;
-  }
-  const { markdown } = outcome;
-
-  const cache = store.get('reviewCache') ?? {};
-  cache[item.id] = {
-    markdown: markdown.length > MAX_CACHED_REVIEW_CHARS ? markdown.slice(-MAX_CACHED_REVIEW_CHARS) : markdown,
-    updatedAt: new Date().toISOString(),
-    // 어느 커밋을 리뷰했는지 기록 (참고용)
-    headSha: item.headSha,
-    // 이 시점에 해결돼 있던 스레드 — 이후 새로 해결된 게 생기면 재리뷰한다
-    resolvedThreadIds: outcome.resolvedThreadIds,
-    // 다음 tick 에서 "변화 없음" 을 싸게 걸러내기 위한 기준값
-    seenUpdatedAt: item.updatedAt,
-  };
-  store.set('reviewCache', cache);
-  log.info(`auto-review: done ${item.id} (${markdown.length} chars)`);
-
-  const provider = createGitProvider(cfg);
-  const res = await provider.postComment(item, `${COMMENT_HEADER}\n\n${markdown}`);
-  if (res.success) log.info(`auto-review: 댓글 등록 ${item.id} (${res.commentId ?? '-'})`);
-  else log.warn(`auto-review: 댓글 등록 실패 ${item.id}: ${(res.error ?? '').slice(0, 200)}`);
-
-  // 지적 없으면 사람 손을 안 빌린다 — 봇이 자기 스레드를 닫는다.
-  if (res.success && isCleanReview(markdown)) {
-    const settled = await settleClean(provider, item, res.commentId);
-    // 봇이 스스로 해결한 스레드는 재리뷰 트리거가 아니다 — 캐시에 미리 기록해 둔다.
-    // (사람이 해결한 Pingo 스레드는 기록에 없으므로 정상적으로 재리뷰를 부른다)
-    if (settled && res.commentId) {
-      const c = store.get('reviewCache') ?? {};
-      c[item.id]?.resolvedThreadIds?.push(res.commentId);
-      store.set('reviewCache', c);
-    }
-  }
+/** 해결 검증 요청의 오케스트레이터 key — 전체 리뷰(item.id)와 분리해 서로 덮거나 버리지 않게 */
+export function verifyKey(itemId: string): string {
+  return `${itemId}#verify`;
 }
 
 /** 자동 리뷰가 실패했음을 사용자에게 알린다. 알림을 꺼둔 상태(MUTED)면 로그만 남긴다. */
@@ -252,53 +58,59 @@ function notifyFailure(payload: AutoReviewPayload, reason: string): void {
   });
 }
 
-// 설정의 동시 상한이 바뀌면 재생성한다 — 앱 재시작 없이 설정이 먹도록.
-// ponytail: 재생성 시 대기열은 버려진다(실행 중인 리뷰는 이전 인스턴스에서 그대로 완주).
-//   설정 변경은 드물고, 버려진 항목은 다음 폴링에서 캐시 미존재로 다시 잡힌다.
+// ── 오케스트레이터 (단일 인스턴스, 동시 상한은 제자리에서 갱신) ─────────────
 let orchestrator: AutoReviewOrchestrator<AutoReviewPayload, ReviewOutcome> | null = null;
 let orchestratorMax = 0;
+let changeListener: (() => void) | null = null;
+/** key → 마지막 실패 시각. 백오프 안에는 같은 key 를 다시 접수하지 않는다. */
+const failedAt = new Map<string, number>();
+
+/** 현황이 바뀔 때(접수/단계/완료) 불릴 콜백 — 트레이 메뉴 갱신용 */
+export function onAutoReviewChange(fn: () => void): void {
+  changeListener = fn;
+}
 
 function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReviewPayload, ReviewOutcome> {
-  if (orchestrator && orchestratorMax === concurrency) return orchestrator;
-  if (orchestrator) log.info(`auto-review: 동시 상한 변경 ${orchestratorMax} → ${concurrency}, 오케스트레이터 재생성`);
-  orchestratorMax = concurrency;
-  orchestrator = createAutoReviewOrchestrator<AutoReviewPayload, ReviewOutcome>(
-    { autoReviewConcurrency: concurrency },
-    {
-      runReview: runOne,
-      postResult: postOne,
-      logError: (msg, req) => {
-        const safe = mask(msg, req.payload.cfg.token).slice(0, 200);
-        log.warn(`auto-review: failed ${req.key}: ${safe}`);
-        notifyFailure(req.payload, safe);
+  if (!orchestrator) {
+    orchestratorMax = concurrency;
+    orchestrator = createAutoReviewOrchestrator<AutoReviewPayload, ReviewOutcome>(
+      { autoReviewConcurrency: concurrency },
+      {
+        runReview: runOne,
+        postResult: postOne,
+        logError: (msg, req) => {
+          const safe = mask(msg, req.payload.cfg.token).slice(0, 200);
+          log.warn(`auto-review: failed ${req.key}: ${safe}`);
+          failedAt.set(req.key, Date.now());
+          notifyFailure(req.payload, safe);
+        },
+        onChange: () => changeListener?.(),
       },
-    },
-  );
+    );
+  } else if (orchestratorMax !== concurrency) {
+    log.info(`auto-review: 동시 상한 변경 ${orchestratorMax} → ${concurrency}`);
+    orchestratorMax = concurrency;
+    orchestrator.setMaxConcurrent(concurrency);
+  }
   return orchestrator;
 }
 
-/** 프로젝트당 슬롯 상한 — 미설정/비정상이면 기본값 */
-export function resolveSlotsPerProject(
-  settings: Pick<AppSettings, 'autoReviewSlotsPerProject'>,
-): number {
-  const n = settings.autoReviewSlotsPerProject;
-  return typeof n === 'number' && Number.isFinite(n) && n >= 1
-    ? Math.floor(n)
-    : DEFAULT_SLOTS_PER_PROJECT;
-}
-
-/** 트레이 메뉴 표시용 — 지금 몇 건이 돌고 몇 건이 대기 중인지 */
-export function getAutoReviewStatus(): { active: number; queued: number } {
+/** 트레이 메뉴 표시용 — 지금 뭐가 어느 단계에 있고, 뭐가 기다리고, 최근에 뭐가 됐는지 */
+export function getAutoReviewStatus(): AutoReviewStatus {
+  const s = orchestrator?.snapshot();
+  if (!s) return { active: [], queued: [], recent: [] };
+  const kind = (p: AutoReviewPayload): 'review' | 'verify' => (p.verifyThreadIds ? 'verify' : 'review');
   return {
-    active: orchestrator?.activeCount ?? 0,
-    queued: orchestrator?.queuedCount ?? 0,
+    active: s.active.map((a) => ({ item: a.payload.item, kind: kind(a.payload), phase: a.phase, startedAt: a.startedAt })),
+    queued: s.queued.map((q) => ({ item: q.payload.item, kind: kind(q.payload) })),
+    recent: s.recent.map((r) => ({ item: r.payload.item, kind: kind(r.payload), ok: r.ok, summary: r.summary, at: r.at })),
   };
 }
 
 /**
  * 해결(resolved)된 스레드 id 목록 — Pingo 자기 리뷰 스레드도 포함한다.
- * 사람이 지적을 고치고 Pingo 스레드를 해결하는 게 재리뷰의 핵심 신호이기 때문.
- * 무한루프(리뷰 → 봇 자체 해결 → 재리뷰)는 봇이 settleClean 으로 스스로 해결한
+ * 사람이 지적을 고치고 Pingo 스레드를 해결하는 게 검증의 핵심 신호이기 때문.
+ * 무한루프(리뷰 → 봇 자체 해결 → 검증)는 봇이 settleClean 으로 스스로 해결한
  * 스레드 id 를 캐시 resolvedThreadIds 에 기록하는 쪽(postOne)에서 막는다.
  */
 export function resolvedIds(discussions: Discussion[]): string[] {
@@ -308,31 +120,11 @@ export function resolvedIds(discussions: Discussion[]): string[] {
 /**
  * 지난 리뷰 이후 새로 해결된 스레드가 있는지 — 해결 검증 트리거.
  * 지적을 고치고 스레드를 닫으면 그 스레드만 "진짜 고쳐졌나" 검증해 답글로 남긴다.
- * 커밋마다 도는 것보다 낫다: "고쳤다" 는 신호가 왔을 때만 확인한다.
  */
 export function newlyResolved(cachedIds: string[] | undefined, current: string[]): string[] {
-  if (!cachedIds) return []; // 리뷰 이력이 없으면 재리뷰가 아니라 첫 리뷰 경로
+  if (!cachedIds) return []; // 리뷰 이력이 없으면 검증이 아니라 첫 리뷰 경로
   const before = new Set(cachedIds);
   return current.filter((id) => !before.has(id));
-}
-
-/** updatedAt 이 안 변해도 토론을 다시 보는 최소 간격 */
-export const DISCUSSION_RECHECK_MS = 5 * 60_000;
-
-/**
- * 이번 tick 에 토론을 조회할지.
- * updatedAt 변화면 즉시. 변화가 없어도 마지막 조회가 오래됐으면 조회한다 —
- * GitLab 은 댓글 없이 스레드만 resolve 하면 MR updatedAt 을 안 바꿔서,
- * updatedAt 만 믿으면 그 해결은 영영 검증되지 않는다.
- */
-export function shouldCheckDiscussions(
-  cached: { seenUpdatedAt?: string; discussionsCheckedAt?: string },
-  itemUpdatedAt: string,
-  now: number,
-): boolean {
-  if (cached.seenUpdatedAt !== itemUpdatedAt) return true;
-  const last = cached.discussionsCheckedAt ? Date.parse(cached.discussionsCheckedAt) : NaN;
-  return !Number.isFinite(last) || now - last >= DISCUSSION_RECHECK_MS;
 }
 
 function submit(
@@ -347,17 +139,20 @@ function submit(
   if (!cfg) return;
   if (!force && !isReviewTarget(settings.autoReviewScope, cfg, item)) return;
 
-  log.info(`auto-review: queue ${item.id} (${why}) ${item.title.slice(0, 60)}`);
-  getOrchestrator(resolveAutoReviewConcurrency(settings)).submit({
-    key: item.id,
-    payload: { item, cfg, ai: settings.ai, store, verifyThreadIds },
-  });
+  const key = verifyThreadIds ? verifyKey(item.id) : item.id;
+  const orch = getOrchestrator(resolveAutoReviewConcurrency(settings));
+  if (orch.has(key)) return; // 이미 실행/대기 중 — 로그 소음 방지
+  const lastFail = failedAt.get(key);
+  if (!force && lastFail !== undefined && Date.now() - lastFail < RETRY_BACKOFF_MS) return;
+
+  log.info(`auto-review: queue ${key} (${why}) ${item.title.slice(0, 60)}`);
+  failedAt.delete(key);
+  orch.submit({ key, payload: { item, cfg, ai: settings.ai, store, verifyThreadIds } });
 }
 
 /**
- * 트레이 메뉴에서 사람이 직접 누른 재리뷰 — 이력/스코프 검사 없이 전체 리뷰를 다시 돌린다.
+ * 트레이 메뉴에서 사람이 직접 누른 재리뷰 — 이력/스코프/백오프 검사 없이 전체 리뷰를 다시 돌린다.
  * 자동 경로는 첫 리뷰 이후 "해결 검증"만 하므로, 전체 재리뷰는 이 수동 트리거가 유일한 통로.
- * 완료 시 postOne 이 캐시(resolvedThreadIds/seenUpdatedAt)를 새로 쓰므로 검증 루프와도 정합.
  */
 export function forceAutoReview(store: Store<StoreSchema>, item: ReviewItemSummary): void {
   submit(store, item, '수동 재리뷰', undefined, true);
@@ -372,11 +167,10 @@ export function maybeAutoReview(store: Store<StoreSchema>, item: ReviewItemSumma
 
 /**
  * 폴링 tick 마다 열린 MR/PR 전체에 대해 호출.
- *  - 리뷰 이력 없음 → 첫 리뷰 (이벤트를 놓쳤거나, 자동 리뷰를 방금 켠 경우)
- *  - 리뷰 이력 있음 → 새로 해결된 스레드가 있을 때만 그 스레드의 해결 검증
+ *  - 리뷰 이력 없음 → 첫 리뷰 (이벤트를 놓쳤거나, 자동 리뷰를 방금 켠 경우, 지난 시도가 실패한 경우)
+ *  - 리뷰 이력 있음 → 토론을 조회해 새로 해결된 스레드가 있을 때만 그 스레드의 해결 검증
  *
- * 토론 조회는 MR 의 updatedAt 이 바뀌었을 때만 한다. 안 그러면 리뷰한 MR 수만큼
- * 30초마다 API 를 때린다.
+ * 토론 조회는 리뷰된 대상 MR 마다 tick 당 1회. 같은 MR 의 검증이 이미 돌고 있으면 건너뛴다.
  */
 export function maybeAutoReviewOnPoll(store: Store<StoreSchema>, item: ReviewItemSummary): void {
   const settings = store.get('settings');
@@ -386,27 +180,25 @@ export function maybeAutoReviewOnPoll(store: Store<StoreSchema>, item: ReviewIte
     submit(store, item, '첫 리뷰(폴링)');
     return;
   }
-  if (!shouldCheckDiscussions(cached, item.updatedAt, Date.now())) return;
-
   const cfg = settings.gitConnections.find((c) => c.id === item.gitConfigId);
   if (!cfg) return;
   if (!isReviewTarget(settings.autoReviewScope, cfg, item)) return;
+  if (orchestrator?.has(verifyKey(item.id)) || orchestrator?.has(item.id)) return; // 이미 진행/대기 중
 
   void (async (): Promise<void> => {
     try {
       const discussions = await createGitProvider(cfg).fetchDiscussions(item);
       const current = resolvedIds(discussions);
-      const fresh = newlyResolved(cached.resolvedThreadIds, current);
-      // updatedAt/조회 시각을 갱신해 다음 tick 에서 같은 조회를 반복하지 않는다
       const cache = store.get('reviewCache') ?? {};
       const entry = cache[item.id];
-      if (entry) {
-        entry.seenUpdatedAt = item.updatedAt;
-        entry.discussionsCheckedAt = new Date().toISOString();
+      if (!entry) return;
+      if (!entry.resolvedThreadIds) {
         // 구버전 캐시(기준 없음)는 지금 상태를 기준으로 — 다음 해결부터 검증이 걸린다
-        if (!entry.resolvedThreadIds) entry.resolvedThreadIds = current;
+        entry.resolvedThreadIds = current;
         store.set('reviewCache', cache);
+        return;
       }
+      const fresh = newlyResolved(entry.resolvedThreadIds, current);
       if (fresh.length === 0) return;
       // 전체 재리뷰가 아니라 해결 검증만 — 재리뷰 댓글이 새 스레드를 만들어
       // 해결 → 리뷰 → 해결 무한 반복이 되는 것을 막는다
