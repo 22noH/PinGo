@@ -11,9 +11,7 @@ import { DEFAULT_SLOTS_PER_PROJECT } from '../../shared/constants';
 import type { AutoReviewRequest, SetPhase } from './orchestrator';
 import { isResolved, reviewableDiscussions } from './orchestrator';
 import { COMMENT_HEADER, isCleanReview, settleClean } from './clean';
-import {
-  buildVerifyPrompt, parseVerdict, postVerdicts, unverifiableVerdict, type ThreadVerdict,
-} from './verify';
+import { buildVerifyPrompt, parseVerdict, postVerdicts, type ThreadVerdict } from './verify';
 import { isReadyClone, prepareSlot } from './worktree';
 import { leaseSlot, markBroken, markProvisioned, type SlotLease } from './slot-pool';
 import { createAIProvider } from '../providers/ai/ai-provider';
@@ -54,14 +52,20 @@ export function resolveSlotsPerProject(
 /**
  * 리뷰 대상 브랜치를 프로젝트 슬롯에 준비한다(클론 또는 fetch+checkout).
  * clone URL 조회를 지원하지 않는 provider(현재 GitHub)나 실패 시 null — diff 만으로 리뷰 진행.
+ * @param required true 면 실패를 null 로 삼키지 않고 사유와 함께 던진다 — 해결 검증은 코드를
+ *   못 보면 판정이 불가능하므로, "검증 불가" 답글로 수용하는 대신 실패로 남겨 재시도한다.
  */
 export async function prepareWorkspace(
   payload: Pick<AutoReviewPayload, 'item' | 'cfg' | 'store'>,
   setPhase: SetPhase = (): void => undefined,
+  required = false,
 ): Promise<{ dir: string; release: () => void } | null> {
   const { item, cfg, store } = payload;
   const provider = createGitProvider(cfg);
-  if (!provider.fetchRepoCloneUrl) return null;
+  if (!provider.fetchRepoCloneUrl) {
+    if (required) throw new Error('이 연결은 저장소 클론을 지원하지 않아 해결 검증을 할 수 없습니다');
+    return null;
+  }
 
   const settings = store.get('settings');
   // 슬롯은 프로젝트 단위. gitConfigId 까지 넣어야 서버가 다른 같은 projectId 가 안 겹친다.
@@ -97,8 +101,9 @@ export async function prepareWorkspace(
       markBroken(key, lease.dir); // 다음 대여 때 다시 클론하도록
       lease.release();
     }
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn(`auto-review: 작업 트리 준비 실패 ${item.id} — diff 만으로 진행: ${mask(msg, cfg.token).slice(0, 200)}`);
+    const msg = mask(err instanceof Error ? err.message : String(err), cfg.token).slice(0, 200);
+    if (required) throw new Error(`저장소 준비(클론/fetch) 실패: ${msg}`);
+    log.warn(`auto-review: 작업 트리 준비 실패 ${item.id} — diff 만으로 진행: ${msg}`);
     return null;
   }
 }
@@ -133,23 +138,21 @@ async function runVerify(
   const discussions = await createGitProvider(cfg).fetchDiscussions(item);
   const targets = discussions.filter((d) => verifyThreadIds?.includes(d.id));
   if (targets.length === 0) return { kind: 'verify', verdicts: [] }; // 이력에 "대상 없음" 만 남긴다
-  const workspace = await prepareWorkspace(req.payload, setPhase);
+  // 저장소는 필수 — 준비 실패는 답글 없이 실패로 던진다(트레이 ❌ + 사유, 백오프 후 자동 재시도).
+  // "검증 불가" 답글로 수용하면 그 스레드는 다시 닫아도 영영 검증되지 않는다(20260915 리포트).
+  const workspace = await prepareWorkspace(req.payload, setPhase, true);
+  if (!workspace) throw new Error('저장소 준비 실패');
   try {
     const verdicts: ThreadVerdict[] = [];
     for (const [i, d] of targets.entries()) {
       if (signal.aborted) throw new Error('중단됨');
-      if (!workspace) {
-        // 클론 실패 — 코드를 못 보면 판정 불가. 그 사실을 답글로 남기고 사람 판단을 수용.
-        verdicts.push({ ...unverifiableVerdict(d.id, '저장소 준비(클론/fetch) 실패'), resolvedAt: d.resolvedAt });
-        continue;
-      }
       setPhase(`AI 검증 ${i + 1}/${targets.length}`);
       const out = await runAI(ai, buildVerifyPrompt(d, item.targetBranch), workspace.dir, signal);
       verdicts.push({ ...parseVerdict(d.id, out), resolvedAt: d.resolvedAt });
     }
     return { kind: 'verify', verdicts };
   } finally {
-    workspace?.release();
+    workspace.release();
   }
 }
 

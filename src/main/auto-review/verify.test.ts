@@ -1,7 +1,7 @@
 // main/auto-review/verify.test.ts — 판정 파싱이 AI 출력 변형에 견디는지, 판단 불가도 답글로 드러나는지.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseVerdict, unverifiableVerdict, VERIFY_HEADER } from './verify';
+import { parseVerdict, VERIFY_HEADER } from './verify';
 
 test('판정 파싱: 정확한 한 줄', () => {
   assert.equal(parseVerdict('t', '판정: 해결\n사유: 고쳐짐').fixed, true);
@@ -38,13 +38,6 @@ test('판정 파싱: 출력이 비어도 판단 불가 답글은 남는다', () 
   const v = parseVerdict('t', '   ');
   assert.equal(v.fixed, null);
   assert.match(v.reply, /판단 불가/);
-});
-
-test('검증 불가(클론 실패): 사람 판단 수용을 답글로 남긴다', () => {
-  const v = unverifiableVerdict('t', '저장소 준비 실패');
-  assert.equal(v.fixed, null);
-  assert.match(v.reply, /저장소 준비 실패/);
-  assert.match(v.reply, /수용/);
 });
 
 // ── 게시 실패는 수용이 아니다 ──────────────────────────────

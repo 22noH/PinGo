@@ -76,15 +76,6 @@ export function hasAcceptedVerification(d: Discussion): boolean {
   return parseVerdict(d.id, last.body).fixed !== false;
 }
 
-/** 검증 자체를 못 한 경우(저장소 준비 실패 등) — 이유를 답글로 남기고 사람 판단을 수용한다 */
-export function unverifiableVerdict(threadId: string, reason: string): ThreadVerdict {
-  return {
-    threadId,
-    fixed: null,
-    reply: `${VERIFY_HEADER}\n\n⚠️ 검증 불가 — ${reason}. 코드를 확인하지 못해 사람의 해결 판단을 수용합니다.`,
-  };
-}
-
 /** 이력 표시용 한 줄 요약 — "검증: 해결 확인 2 · 미해결 1" */
 export function summarizeVerdicts(verdicts: ThreadVerdict[]): string {
   const n = (f: boolean | null): number => verdicts.filter((v) => v.fixed === f).length;
