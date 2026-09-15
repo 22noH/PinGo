@@ -19,6 +19,7 @@ import {
 import type { AutoReviewStatus } from './auto-review/status';
 import { mask, postOne, runOne, type AutoReviewPayload, type ReviewOutcome } from './auto-review/pipeline';
 import { pendingVerifications } from './auto-review/pending';
+import { killAllGit } from './auto-review/worktree';
 import { createGitProvider } from './providers/git/git-provider';
 import { sendAutoReviewFailure } from './notifier';
 
@@ -113,6 +114,16 @@ function getOrchestrator(concurrency: number): AutoReviewOrchestrator<AutoReview
     orchestrator.setMaxConcurrent(concurrency);
   }
   return orchestrator;
+}
+
+/**
+ * 앱 종료(업데이트 재시작 포함) 직전 — 실행 중인 리뷰를 중단하고 git 자식을 죽인다.
+ * 안 그러면 checkout 이 고아로 남아 다음 실행에서 슬롯이 index.lock 에 막힌다.
+ */
+export function shutdownAutoReview(): void {
+  orchestrator?.abortAll();
+  const n = killAllGit();
+  if (n > 0) log.info(`auto-review: 종료 — git 자식 ${n}개 정리`);
 }
 
 /** 트레이 메뉴 표시용 — 지금 뭐가 어느 단계에 있고, 뭐가 기다리고, 최근에 뭐가 됐는지 */

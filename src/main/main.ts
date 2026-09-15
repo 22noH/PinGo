@@ -28,7 +28,7 @@ import { createPoller, PollerController, PollerSeenState } from './poller';
 import { detectV3ItemEvents } from './poller-events';
 import { createJiraBridge, JiraBridgeController } from './main-jira-bridge';
 import { sendMrNotification } from './notifier';
-import { forceAutoReview, getAutoReviewStatus, maybeAutoReview, onAutoReviewChange, smartAutoReview, maybeAutoReviewOnPoll } from './auto-review';
+import { forceAutoReview, getAutoReviewStatus, maybeAutoReview, onAutoReviewChange, shutdownAutoReview, smartAutoReview, maybeAutoReviewOnPoll } from './auto-review';
 import type { JiraEvent, JiraIssueSummary } from '../shared/types';
 import { JIRA_ISSUE_NEW, LIST_JIRA_UPDATED } from '../shared/constants';
 import { registerIpcHandlers, unregisterIpcHandlers } from './ipc';
@@ -593,6 +593,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   log.info('pingo: before-quit');
+  shutdownAutoReview();
   poller?.stop();
   void jiraBridge?.stop();
   tray?.destroy();

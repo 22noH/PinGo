@@ -88,6 +88,13 @@ export class AutoReviewOrchestrator<T = unknown, R = unknown> {
     this.deps.onChange?.();
   }
 
+  /** 앱 종료 시 — 실행 중인 요청을 모두 abort(AI/git 자식 정리 신호)하고 대기열을 비운다 */
+  abortAll(): void {
+    this.queue = [];
+    for (const e of this.active.values()) e.controller.abort();
+    this.deps.onChange?.();
+  }
+
   /** 트레이 메뉴용 현황 */
   snapshot(): OrchestratorSnapshot<T> {
     return {

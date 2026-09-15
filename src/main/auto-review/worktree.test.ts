@@ -59,3 +59,41 @@ test('클론이 완성되지 않은 디렉터리(표식 없음)는 처음부터 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ── 오래된 index.lock ─────────────────────────────────────
+// 업데이트 재시작/크래시로 이전 프로세스의 git 이 남긴 잠금은 슬롯을 영영 막는다(20260915 로그:
+// 두 슬롯 모두 "index.lock: File exists"). 아무 git 도 안 잡고 있는 오래된 잠금은 지우고 진행한다.
+import { utimesSync } from 'node:fs';
+import { STALE_LOCK_MS } from './worktree';
+
+test('오래된 index.lock 이 남아 있어도 슬롯 준비가 된다', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pingo-wt-'));
+  try {
+    const remote = makeRemote(root);
+    const slot = path.join(root, 'slot-0');
+    await prepareSlot(slot, remote, 'main');
+    const lock = path.join(slot, '.git', 'index.lock');
+    writeFileSync(lock, '');
+    const old = new Date(Date.now() - STALE_LOCK_MS - 60_000);
+    utimesSync(lock, old, old);
+    await prepareSlot(slot, remote, 'main');
+    assert.ok(!existsSync(lock), '오래된 잠금은 제거돼야 한다');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('방금 생긴 index.lock 은 건드리지 않는다 — 진짜 다른 git 이 도는 중일 수 있다', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pingo-wt-'));
+  try {
+    const remote = makeRemote(root);
+    const slot = path.join(root, 'slot-0');
+    await prepareSlot(slot, remote, 'main');
+    const lock = path.join(slot, '.git', 'index.lock');
+    writeFileSync(lock, '');
+    await assert.rejects(() => prepareSlot(slot, remote, 'main'), /index\.lock/);
+    assert.ok(existsSync(lock));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

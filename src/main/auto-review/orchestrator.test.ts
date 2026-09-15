@@ -194,3 +194,18 @@ test('onChange: 접수·단계 변경·완료 때마다 호출된다', async () 
   await h.finish('k0');
   assert.ok(h.changes.length > afterSubmit, '완료 시점');
 });
+
+test('abortAll: 실행 중인 요청의 signal 이 모두 abort 되고 대기열은 비워진다 — 앱 종료 시 고아 프로세스 방지', () => {
+  const signals: AbortSignal[] = [];
+  const orch = new AutoReviewOrchestrator<void, string>({
+    maxConcurrent: 2,
+    runReview: (_req, signal) => { signals.push(signal); return new Promise<string>(() => undefined); },
+    postResult: () => Promise.resolve(),
+  });
+  for (let i = 0; i < 4; i++) orch.submit({ key: 'k' + i, payload: undefined });
+  assert.equal(orch.queuedCount, 2);
+  orch.abortAll();
+  assert.equal(signals.length, 2);
+  assert.ok(signals.every((s) => s.aborted));
+  assert.equal(orch.queuedCount, 0, '대기열도 비운다');
+});

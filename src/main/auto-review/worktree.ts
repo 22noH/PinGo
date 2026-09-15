@@ -11,9 +11,30 @@
 //
 // ponytail: 슬롯 하나당 7.7GB(작업 트리 + pack 1.34GB). 개수는 설정으로 제한한다.
 //   디스크가 더 문제가 되면 변경 파일 주변만 sparse checkout 하는 쪽으로 간다.
-import { spawn } from 'node:child_process';
-import { access, mkdir, rm, writeFile } from 'node:fs/promises';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { access, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
+
+/**
+ * 이 프로세스가 띄운 git 자식들. 앱이 종료(업데이트 재시작 포함)될 때 killAllGit 으로 정리한다 —
+ * 안 죽이면 checkout 이 고아로 남아 슬롯의 index.lock 을 계속 쥔다(20260915: 두 슬롯 모두 잠김).
+ */
+const running = new Set<ChildProcess>();
+
+export function killAllGit(): number {
+  let n = 0;
+  for (const child of running) {
+    if (child.exitCode === null && !child.killed) {
+      child.kill();
+      n += 1;
+    }
+  }
+  running.clear();
+  return n;
+}
+
+/** 이보다 오래된 index.lock 은 죽은 프로세스의 잔재로 보고 지운다 */
+export const STALE_LOCK_MS = 10 * 60_000;
 
 /**
  * 클론 완성 표식 — .git 안에 둔다. 슬롯 풀은 메모리라 앱을 다시 켜면 모든 슬롯이 fresh 로
@@ -34,6 +55,8 @@ function git(args: string[], cwd?: string): Promise<void> {
       cwd,
       stdio: ['ignore', 'ignore', 'pipe'],
     });
+    running.add(child);
+    child.once('exit', () => running.delete(child));
     let stderr = '';
     child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
@@ -91,6 +114,7 @@ export async function prepareSlot(
     await writeFile(path.join(dir, READY_MARKER), new Date().toISOString(), 'utf-8');
   }
 
+  await removeStaleLock(dir);
   await git(['fetch', '--filter=blob:none', 'origin', `${branch}:refs/remotes/origin/${branch}`], dir);
   if (targetBranch && targetBranch !== branch) {
     // diff 기준점. 실패해도 리뷰는 진행 — 그 경우 AI 는 프롬프트의 diff 만 쓴다.
@@ -102,7 +126,7 @@ export async function prepareSlot(
   // detach 로 체크아웃 — 로컬 브랜치를 만들면 다음 재사용 때 이름이 충돌한다.
   // -f: 이전 리뷰가 남긴 변경(AI 가 건드렸을 수도)을 버리고 깨끗한 상태로 맞춘다.
   try {
-    await git(['checkout', '--detach', '-f', `origin/${branch}`], dir);
+    await checkoutWithRetry(dir, `origin/${branch}`);
   } catch (err) {
     // 체크아웃 실패는 저장소 상태 문제일 가능성이 높다 — 표식을 지워 다음엔 처음부터 클론
     // (fetch 실패는 대개 네트워크/인증이라 표식을 유지한다: 재클론은 수 분짜리 비용)
@@ -111,6 +135,31 @@ export async function prepareSlot(
   }
   // 추적되지 않는 잔여 파일 제거 — 이전 브랜치의 산출물이 리뷰에 섞이지 않게
   await git(['clean', '-ffdx'], dir).catch(() => undefined);
+}
+
+/**
+ * 오래된 index.lock 제거. 방금 생긴 잠금은 진짜 다른 git 이 도는 중일 수 있으니 두고,
+ * git 이 자기 오류("Another git process seems to be running")로 실패하게 둔다.
+ * Windows 는 열려 있는 파일을 못 지우므로, 살아 있는 프로세스의 잠금은 어차피 안 지워진다.
+ */
+async function removeStaleLock(dir: string): Promise<void> {
+  const lock = path.join(dir, '.git', 'index.lock');
+  try {
+    const s = await stat(lock);
+    if (Date.now() - s.mtimeMs < STALE_LOCK_MS) return;
+    await rm(lock, { force: true });
+  } catch { /* 잠금 없음 또는 삭제 불가 — git 이 판단 */ }
+}
+
+/** 전송이 끊기면(curl 18 / unexpected disconnect) 한 번 더 — 부분 클론은 checkout 중에도 내려받는다 */
+async function checkoutWithRetry(dir: string, ref: string): Promise<void> {
+  try {
+    await git(['checkout', '--detach', '-f', ref], dir);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!/RPC failed|unexpected disconnect|early EOF|curl \d+/.test(msg)) throw err;
+    await git(['checkout', '--detach', '-f', ref], dir);
+  }
 }
 
 /**
