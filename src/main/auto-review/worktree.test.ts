@@ -97,3 +97,68 @@ test('방금 생긴 index.lock 은 건드리지 않는다 — 진짜 다른 git 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// ── 재사용 슬롯의 remote-tracking ref 가 리모트와 어긋나는 경우 ───────────
+// 슬롯은 여러 MR 에 걸쳐 재사용되므로 이전에 받아둔 origin/<branch> 가 남아 있다.
+// (1) 누가 브랜치를 rebase 후 force-push 하면 non-fast-forward 라 fetch 가 거절된다.
+// (2) 브랜치가 머지돼 삭제된 뒤 그 이름을 접두어로 하는 브랜치(fix → fix/login)가 생기면
+//     남은 ref 파일이 디렉터리 생성을 막아 "cannot lock ref" 로 실패한다.
+// 두 경우 모두 다른 컴퓨터에서 "fetch 가 종종 실패" 로 보고된 원인이다(20261008).
+function commit(work: string, msg: string, extra: string[] = []): void {
+  git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', ...extra, '-m', msg], work);
+}
+
+test('force-push 로 역사가 바뀐 브랜치도 받아온다 (non-fast-forward)', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pingo-wt-'));
+  try {
+    const remote = makeRemote(root);
+    const work = path.join(root, 'work');
+    git(['checkout', '-q', '-b', 'feat'], work);
+    commit(work, 'feat-1');
+    git(['push', '-q', remote, 'feat'], work);
+    const slot = path.join(root, 'slot-0');
+    await prepareSlot(slot, remote, 'feat', 'main'); // 슬롯에 origin/feat 가 남는다
+
+    commit(work, 'feat-1 rebased', ['--amend']);
+    git(['push', '-q', '-f', remote, 'feat'], work);
+    const rewritten = git(['rev-parse', 'HEAD'], work).trim();
+
+    await prepareSlot(slot, remote, 'feat', 'main');
+    assert.equal(git(['rev-parse', 'HEAD'], slot).trim(), rewritten, '새 역사로 체크아웃돼야 한다');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('삭제된 브랜치 이름이 새 브랜치의 접두어여도 받아온다 (fix → fix/login)', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pingo-wt-'));
+  try {
+    const remote = makeRemote(root);
+    const work = path.join(root, 'work');
+    git(['push', '-q', remote, 'main:refs/heads/fix'], work);
+    const slot = path.join(root, 'slot-0');
+    await prepareSlot(slot, remote, 'fix', 'main'); // 슬롯에 refs/remotes/origin/fix 파일이 남는다
+
+    git(['push', '-q', remote, '--delete', 'fix'], work); // 머지 후 삭제
+    git(['checkout', '-q', '-b', 'fix/login'], work);
+    commit(work, 'login');
+    git(['push', '-q', remote, 'fix/login'], work);
+    const head = git(['rev-parse', 'HEAD'], work).trim();
+
+    await prepareSlot(slot, remote, 'fix/login', 'main');
+    assert.equal(git(['rev-parse', 'HEAD'], slot).trim(), head);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('리모트에 없는 브랜치는 "삭제됨" 을 알 수 있는 오류로 실패한다', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'pingo-wt-'));
+  try {
+    const remote = makeRemote(root);
+    const slot = path.join(root, 'slot-0');
+    await assert.rejects(() => prepareSlot(slot, remote, 'gone', 'main'), /브랜치가 원격에 없습니다/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

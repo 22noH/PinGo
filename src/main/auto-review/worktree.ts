@@ -115,13 +115,10 @@ export async function prepareSlot(
   }
 
   await removeStaleLock(dir);
-  await git(['fetch', '--filter=blob:none', 'origin', `${branch}:refs/remotes/origin/${branch}`], dir);
+  await fetchBranch(dir, branch);
   if (targetBranch && targetBranch !== branch) {
     // diff 기준점. 실패해도 리뷰는 진행 — 그 경우 AI 는 프롬프트의 diff 만 쓴다.
-    await git(
-      ['fetch', '--filter=blob:none', 'origin', `${targetBranch}:refs/remotes/origin/${targetBranch}`],
-      dir,
-    ).catch(() => undefined);
+    await fetchBranch(dir, targetBranch).catch(() => undefined);
   }
   // detach 로 체크아웃 — 로컬 브랜치를 만들면 다음 재사용 때 이름이 충돌한다.
   // -f: 이전 리뷰가 남긴 변경(AI 가 건드렸을 수도)을 버리고 깨끗한 상태로 맞춘다.
@@ -135,6 +132,29 @@ export async function prepareSlot(
   }
   // 추적되지 않는 잔여 파일 제거 — 이전 브랜치의 산출물이 리뷰에 섞이지 않게
   await git(['clean', '-ffdx'], dir).catch(() => undefined);
+}
+
+/**
+ * 브랜치 하나를 refs/remotes/origin/<branch> 로 받는다. 재사용 슬롯에는 이전 리뷰가 받아둔
+ * ref 가 남아 있어 리모트와 어긋날 수 있다 — 다른 컴퓨터의 "fetch 가 종종 실패" 원인(20261008):
+ *   - `+` 없는 refspec 은 rebase/force-push 된 브랜치를 non-fast-forward 로 거절한다.
+ *     한 번 어긋나면 그 브랜치는 계속 실패한다.
+ *   - 머지 후 삭제된 브랜치(fix)의 ref 파일이 새 브랜치(fix/login)의 디렉터리를 막아
+ *     "cannot lock ref" 가 난다 → 리모트에서 사라진 ref 를 prune 하고 한 번 더.
+ *   - "couldn't find remote ref" 는 브랜치가 삭제된 것 — 호출측이 알아볼 수 있는 메시지로 바꾼다.
+ */
+async function fetchBranch(dir: string, branch: string): Promise<void> {
+  const args = ['fetch', '--filter=blob:none', 'origin', `+${branch}:refs/remotes/origin/${branch}`];
+  try {
+    await git(args, dir);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/couldn't find remote ref/.test(msg)) throw new Error(`브랜치가 원격에 없습니다(삭제됨?): ${branch}`);
+    // 에러 문자열은 뒤 400자만 남으므로 "cannot" 이 잘릴 수 있다 — 뒤쪽 문구까지 본다
+    if (!/lock ref '|unable to update local ref/.test(msg)) throw err;
+    await git(['remote', 'prune', 'origin'], dir);
+    await git(args, dir);
+  }
 }
 
 /**
