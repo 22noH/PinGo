@@ -14,7 +14,21 @@ export interface GitLabConfig {
   label?: string;      // 사용자 표시 이름 (optional)
   url: string;         // self-hosted or https://gitlab.com
   token: string;
+  /** 토큰 사용자의 ID — 연결 테스트에서 자동으로 채운다 */
   userId: number;
+  /** 개인 토큰이 볼 프로젝트 범위 (기본 'member'). 프로젝트 토큰은 무시하고 그 프로젝트로 고정. */
+  projectScope?: GitProjectScopeMode;
+  /** projectScope === 'selected' 일 때 볼 프로젝트 ID */
+  selectedProjectIds?: number[];
+}
+
+/** member = 내가 멤버인 프로젝트 / selected = 그중 고른 것 / all = 토큰으로 보이는 전체 */
+export type GitProjectScopeMode = 'member' | 'selected' | 'all';
+/** project = 프로젝트·그룹 액세스 토큰(봇) / personal = 사람 계정 토큰 */
+export type GitLabTokenKind = 'project' | 'personal';
+export interface GitScopeProject {
+  id: number;
+  path: string;
 }
 
 export interface GitHubConfig {
@@ -428,6 +442,9 @@ export interface ConnectionTestResult {
   success: boolean;
   userId?: number;
   username?: string;
+  /** GitLab 전용 — 토큰 종류와 토큰 사용자가 멤버인 프로젝트 */
+  tokenKind?: GitLabTokenKind;
+  memberProjects?: GitScopeProject[];
   error?: string;
 }
 

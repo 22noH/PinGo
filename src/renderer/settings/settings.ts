@@ -1,5 +1,5 @@
 // settings.ts — Pingo 설정 윈도우 v2 엔트리
-// 역할: 탭 전환 + 공통 푸터(폴링/알림) + 저장/취소 orchestration
+// 역할: 탭 전환 + 일반 탭(폴링/알림) + 저장/취소 orchestration
 // Git 탭은 settings-git.ts, AI 탭은 settings-ai.ts 에 위임
 // strict mode — no `any`, no console.log
 import type { AppSettings } from '../../shared/types';
@@ -7,7 +7,6 @@ import { DEFAULT_SLOTS_PER_PROJECT, DEFAULT_AUTO_REVIEW_CONCURRENCY } from '../.
 import { initGitTab, flushGitPendingChanges, hasUnsavedGitChanges } from './settings-git';
 import { initAITab, flushAIPendingChanges, hasUnsavedAIChanges } from './settings-ai';
 import { initJiraTab, flushJiraPendingChanges, hasUnsavedJiraChanges } from './settings-jira';
-import { initProjectFiltersTab, flushProjectFiltersPendingChanges, hasUnsavedProjectFiltersChanges } from './settings-project-filters';
 
 // ── DOM 참조 ─────────────────────────────────────────────────
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -19,13 +18,13 @@ const $ = <T extends HTMLElement>(id: string): T => {
 const tabGit       = $<HTMLButtonElement>('tab-git');
 const tabAi        = $<HTMLButtonElement>('tab-ai');
 const tabJira      = $<HTMLButtonElement>('tab-jira');
-const tabFilters   = $<HTMLButtonElement>('tab-filters');
 const tabAutoreview = $<HTMLButtonElement>('tab-autoreview');
+const tabGeneral   = $<HTMLButtonElement>('tab-general');
 const panelGit     = $<HTMLElement>('panel-git');
 const panelAi      = $<HTMLElement>('panel-ai');
 const panelJira    = $<HTMLElement>('panel-jira');
-const panelFilters = $<HTMLElement>('panel-filters');
 const panelAutoreview = $<HTMLElement>('panel-autoreview');
+const panelGeneral = $<HTMLElement>('panel-general');
 
 const autoreviewInput = $<HTMLInputElement>('autoreview-concurrency');
 const autoreviewValue = $<HTMLSpanElement>('autoreview-concurrency-value');
@@ -71,14 +70,14 @@ const saveBtn      = $<HTMLButtonElement>('btn-save');
 const cancelBtn    = $<HTMLButtonElement>('btn-cancel');
 
 // ── 탭 전환 ──────────────────────────────────────────────────
-type TabName = 'git' | 'ai' | 'jira' | 'filters' | 'autoreview';
+type TabName = 'git' | 'ai' | 'jira' | 'autoreview' | 'general';
 
 const tabMap: Record<TabName, { btn: HTMLButtonElement; panel: HTMLElement }> = {
   git:        { btn: tabGit,        panel: panelGit        },
   ai:         { btn: tabAi,         panel: panelAi         },
   jira:       { btn: tabJira,       panel: panelJira       },
-  filters:    { btn: tabFilters,    panel: panelFilters    },
   autoreview: { btn: tabAutoreview, panel: panelAutoreview },
+  general:    { btn: tabGeneral,    panel: panelGeneral    },
 };
 
 function switchTab(name: TabName): void {
@@ -95,8 +94,8 @@ function switchTab(name: TabName): void {
 tabGit.addEventListener('click',     (): void => switchTab('git'));
 tabAi.addEventListener('click',      (): void => switchTab('ai'));
 tabJira.addEventListener('click',    (): void => switchTab('jira'));
-tabFilters.addEventListener('click', (): void => switchTab('filters'));
 tabAutoreview.addEventListener('click', (): void => switchTab('autoreview'));
+tabGeneral.addEventListener('click', (): void => switchTab('general'));
 
 autoreviewInput.addEventListener('input', (): void => {
   autoreviewValue.textContent = autoreviewInput.value;
@@ -132,10 +131,6 @@ async function save(): Promise<void> {
     const jira = flushJiraPendingChanges();
     await window.electronAPI.saveJiraConnections({ jiraConnections: jira.connections });
 
-    // 프로젝트 필터 저장
-    const projectFilters = flushProjectFiltersPendingChanges();
-    await window.electronAPI.saveProjectFilters({ projectFilters });
-
     // 공통 설정 저장 (기존 저장된 settings 기반으로 덮어쓰기)
     const current = await window.electronAPI.loadSettings();
     const merged: AppSettings = {
@@ -152,7 +147,6 @@ async function save(): Promise<void> {
       jiraConnections: jira.connections,
       jiraWebhookEnabled: jira.webhookEnabled,
       jiraWebhookPort: jira.webhookPort,
-      projectFilters,
       autoReviewConcurrency: Number(autoreviewInput.value),
       autoReviewScope: scopeSelect.value === 'all' ? 'all' : 'mine',
       autoReviewSlotsPerProject: Number(slotsInput.value),
@@ -192,8 +186,7 @@ saveBtn.addEventListener('click', (): void => { void save(); });
 cancelBtn.addEventListener('click', (): void => {
   const anyDirty = hasUnsavedGitChanges()
     || hasUnsavedAIChanges()
-    || hasUnsavedJiraChanges()
-    || hasUnsavedProjectFiltersChanges();
+    || hasUnsavedJiraChanges();
   if (anyDirty) {
     const ok = window.confirm('저장하지 않은 변경 사항이 있습니다. 창을 닫을까요?');
     if (!ok) return;
@@ -212,7 +205,7 @@ document.addEventListener('keydown', (e: KeyboardEvent): void => {
   // 탭 전환 단축키 (Ctrl/Cmd + 1~4)
   if ((e.ctrlKey || e.metaKey) && ['1','2','3','4','5'].includes(e.key)) {
     e.preventDefault();
-    const order: TabName[] = ['git', 'ai', 'jira', 'filters', 'autoreview'];
+    const order: TabName[] = ['git', 'ai', 'jira', 'autoreview', 'general'];
     const idx = Number(e.key) - 1;
     const target = order[idx];
     if (target) switchTab(target);
@@ -244,7 +237,6 @@ async function bootstrap(): Promise<void> {
     await initGitTab(settings.gitConnections);
     initAITab(settings.ai);
     await initJiraTab(settings);
-    await initProjectFiltersTab(settings);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     showLoadError(`설정 로드 실패: ${msg}`);
@@ -260,7 +252,6 @@ async function bootstrap(): Promise<void> {
       launchOnStartup: false,
     };
     await initJiraTab(fallback);
-    await initProjectFiltersTab(fallback);
   }
 }
 

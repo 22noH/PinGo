@@ -12,8 +12,6 @@ import type {
   GitConfig,
   JiraConfig,
   ListLoadResult,
-  ProjectFiltersLoadResult,
-  ProjectFiltersSavePayload,
   ReviewItem,
   ReviewItemSummary,
   ReviewStartPayload,
@@ -27,8 +25,6 @@ import {
   LIST_OPEN_REVIEW,
   LIST_REFRESH,
   FOLDER_PICK,
-  PROJECT_FILTERS_LOAD,
-  PROJECT_FILTERS_SAVE,
   TAB_DRAG_START,
   TAB_DRAG_END,
   TAB_DRAG_DROP,
@@ -301,20 +297,6 @@ export function registerIpcHandlers(deps: IpcDeps): void {
       handleCommentReply(deps, payload),
   );
 
-  // ── v3: PROJECT_FILTERS ───────────────────────────────
-  ipcMain.handle(PROJECT_FILTERS_LOAD, (): ProjectFiltersLoadResult => {
-    return { projectFilters: deps.store.get('settings').projectFilters ?? [] };
-  });
-  ipcMain.handle(
-    PROJECT_FILTERS_SAVE,
-    (_e, payload: ProjectFiltersSavePayload): void => {
-      const cur = deps.store.get('settings');
-      const next: AppSettings = { ...cur, projectFilters: payload.projectFilters };
-      deps.store.set('settings', next);
-      log.info(`ipc: projectFilters saved (count=${payload.projectFilters.length})`);
-      deps.onSettingsSaved(next);
-    },
-  );
 
   // ── MR 액션: 파이프라인 실행 / AI 머지 ─────────────────
   registerActionHandlers({ store: deps.store, getReviewWindow: deps.getReviewWindow });
@@ -348,8 +330,6 @@ export function unregisterIpcHandlers(): void {
   ipcMain.removeAllListeners(LIST_REFRESH);
   ipcMain.removeHandler(LIST_LOAD);
   ipcMain.removeHandler(COMMENT_REPLY);
-  ipcMain.removeHandler(PROJECT_FILTERS_LOAD);
-  ipcMain.removeHandler(PROJECT_FILTERS_SAVE);
   ipcMain.removeHandler(FOLDER_PICK);
   unregisterActionHandlers();
   unregisterJiraHandlers();

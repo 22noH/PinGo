@@ -21,6 +21,7 @@ import { mask, postOne, runOne, type AutoReviewPayload, type ReviewOutcome } fro
 import { pendingVerifications } from './auto-review/pending';
 import { killAllGit } from './auto-review/worktree';
 import { createGitProvider } from './providers/git/git-provider';
+import { peekGitLabScope } from './providers/git/gitlab-scope';
 import { sendAutoReviewFailure } from './notifier';
 
 export { prepareWorkspace, resolveSlotsPerProject } from './auto-review/pipeline';
@@ -37,8 +38,9 @@ function isMyItem(cfg: GitConfig, item: ReviewItemSummary): boolean {
 
 /**
  * 이 MR/PR 이 자동 리뷰 대상인지 — 설정된 범위에 따라 판단.
- * 기본은 내 담당만. GitLab 은 scope=all 로 폴링해 팀 전체 MR 이 잡히므로,
- * 'all' 로 두면 남의 MR 에도 내 계정으로 AI 댓글이 달린다(의도된 동작).
+ * 기본은 내 담당만. 'all' 이면 연결 범위(gitlab-scope.ts) 안의 MR 전부 —
+ * 남의 MR 에도 내 계정으로 AI 댓글이 달린다(의도된 동작).
+ * 프로젝트 토큰 연결은 그 프로젝트 전용 리뷰 봇이라 "내 담당" 이 없다 — 범위 안 MR 전부가 대상.
  */
 export function isReviewTarget(
   scope: 'mine' | 'all' | undefined,
@@ -46,6 +48,7 @@ export function isReviewTarget(
   item: ReviewItemSummary,
 ): boolean {
   if (scope === 'all') return true;
+  if (cfg.type === 'gitlab' && peekGitLabScope(cfg.id)?.tokenKind === 'project') return true;
   return isMyItem(cfg, item);
 }
 

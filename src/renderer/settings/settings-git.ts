@@ -4,6 +4,7 @@
 import type { GitConfig, GitProviderType } from '../../shared/types';
 import { PROVIDER_SHORT_LABEL, PROVIDER_DISPLAY_NAME } from '../../shared/constants';
 import { renderForm } from './settings-git-form';
+import { fillCardScope } from './settings-git-scope';
 
 // ── 상태 ─────────────────────────────────────────────────────
 let connections: GitConfig[] = [];
@@ -82,6 +83,12 @@ function renderCard(c: GitConfig): HTMLLIElement {
   meta.className = 'connection-card-meta';
   meta.textContent = describeMeta(c);
   body.appendChild(meta);
+  if (c.type === 'gitlab') {
+    const scope = document.createElement('div');
+    scope.className = 'connection-card-scope';
+    fillCardScope(scope, c);
+    body.appendChild(scope);
+  }
   li.appendChild(body);
 
   // 액션
@@ -110,7 +117,7 @@ function describeTitle(c: GitConfig): string {
 }
 
 function describeMeta(c: GitConfig): string {
-  if (c.type === 'gitlab') return `${c.url}${c.userId ? `  ·  User ID ${c.userId}` : ''}`;
+  if (c.type === 'gitlab') return c.url;
   return `github.com  ·  @${c.username}`;
 }
 

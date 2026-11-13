@@ -36,8 +36,6 @@ import type {
   BranchListResult,
   ProjectListPayload,
   ProjectListResult,
-  ProjectFiltersLoadResult,
-  ProjectFiltersSavePayload,
   PipelineRunResult,
   MergeAIStartResult,
   MergeAIPushResult,
@@ -86,8 +84,6 @@ import {
   REVIEW_CACHE_LOAD,
   REVIEW_CACHE_SAVE,
   FOLDER_PICK,
-  PROJECT_FILTERS_LOAD,
-  PROJECT_FILTERS_SAVE,
   PIPELINE_RUN,
   MERGE_AI_START,
   MERGE_AI_PUSH,
@@ -178,8 +174,6 @@ export interface ElectronAPI {
   postCommentReply: (payload: CommentReplyPayload) => Promise<CommentReplyResult>;
 
   // ── v3 신규 — 프로젝트 필터 ────────────────────────────
-  loadProjectFilters: () => Promise<ProjectFiltersLoadResult>;
-  saveProjectFilters: (payload: ProjectFiltersSavePayload) => Promise<void>;
 
   // ── v3 신규 — Jira 웹훅 토큰 ────────────────────────────
   getJiraWebhookSecret: () => Promise<string>;
@@ -366,10 +360,6 @@ const api: ElectronAPI = {
     ipcRenderer.invoke(COMMENT_REPLY, payload) as Promise<CommentReplyResult>,
 
   // ── v3 — 프로젝트 필터 ────────────────────────────────
-  loadProjectFilters: (): Promise<ProjectFiltersLoadResult> =>
-    ipcRenderer.invoke(PROJECT_FILTERS_LOAD) as Promise<ProjectFiltersLoadResult>,
-  saveProjectFilters: (payload: ProjectFiltersSavePayload): Promise<void> =>
-    ipcRenderer.invoke(PROJECT_FILTERS_SAVE, payload) as Promise<void>,
 
   // ── v3 — Jira 웹훅 토큰 ──────────────────────────────
   getJiraWebhookSecret: (): Promise<string> =>

@@ -229,10 +229,3 @@ export interface MergeAIProgressPayload {
 }
 
 // ── IPC 페이로드 ─────────────────────────────────────────────
-export interface ProjectFiltersSavePayload {
-  projectFilters: ProjectFilter[];
-}
-
-export interface ProjectFiltersLoadResult {
-  projectFilters: ProjectFilter[];
-}

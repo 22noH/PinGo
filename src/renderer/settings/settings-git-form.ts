@@ -9,6 +9,14 @@ import type {
   GitConnectionTestResult,
 } from '../../shared/types';
 import { PROVIDER_DISPLAY_NAME } from '../../shared/constants';
+import { createScopeControl, type ScopeControl } from './settings-git-scope';
+
+// ── 폼 상태 (한 번에 폼 하나만 열린다) ─────────────────────────
+/** 토큰 사용자 ID — 입력받지 않고 연결 테스트에서 읽는다 */
+let detectedUserId = 0;
+/** detectedUserId 를 얻은 토큰 — 토큰을 바꾸면 저장 전에 다시 테스트한다 */
+let testedToken = '';
+let scopeCtl: ScopeControl | null = null;
 
 export interface FormCallbacks {
   onSubmit: (cfg: GitConfig) => void;
@@ -23,6 +31,10 @@ export function renderForm(
 ): HTMLElement {
   const root = document.createElement('div');
   root.className = 'inline-form';
+  const existingGitLab = existing?.type === 'gitlab' ? existing : null;
+  detectedUserId = existingGitLab?.userId ?? 0;
+  testedToken = existingGitLab && existingGitLab.userId > 0 ? existingGitLab.token : '';
+  scopeCtl = null;
 
   const title = document.createElement('div');
   title.className = 'inline-form-title';
@@ -54,7 +66,7 @@ export function renderForm(
   fields.className = 'col';
   fields.style.gap = 'var(--space-4)';
   if (type === 'gitlab') {
-    renderGitLabFields(fields, existing?.type === 'gitlab' ? existing : null);
+    renderGitLabFields(fields, existingGitLab);
   } else {
     renderGitHubFields(fields, existing?.type === 'github' ? existing : null);
   }
@@ -97,14 +109,24 @@ export function renderForm(
   saveBtn.className = 'btn btn-primary';
   saveBtn.textContent = existing ? '변경 적용' : '추가';
   saveBtn.addEventListener('click', (): void => {
-    const cfg = buildConfigFromForm(existing?.id);
-    if (!cfg) { showStatus(testResult, 'error', '필드를 모두 채워주세요.'); return; }
-    cb.onSubmit(cfg);
+    void (async (): Promise<void> => {
+      const draft = buildConfigFromForm(existing?.id);
+      if (!draft) { showStatus(testResult, 'error', '필드를 모두 채워주세요.'); return; }
+      // GitLab 은 토큰 사용자·범위를 테스트로 읽어야 저장할 수 있다 (User ID 를 직접 받지 않는다)
+      if (draft.type === 'gitlab' && draft.token !== testedToken) {
+        const ok = await runTest(draft, testBtn, testResult);
+        if (!ok) return;
+      }
+      const cfg = buildConfigFromForm(existing?.id);
+      if (cfg) cb.onSubmit(cfg);
+    })();
   });
   actions.appendChild(cancelBtn);
   actions.appendChild(saveBtn);
   root.appendChild(actions);
 
+  // 편집이면 범위(토큰 종류·프로젝트)를 바로 보여준다
+  if (existingGitLab) void runTest(existingGitLab, testBtn, testResult);
   return root;
 }
 
@@ -113,11 +135,10 @@ function renderGitLabFields(host: HTMLElement, existing: GitLabConfig | null): v
     existing?.url ?? '', 'https://gitlab.example.com'));
   host.appendChild(makeTokenField('form-token', existing?.token ?? '',
     'glpat-xxxxxxxxxxxxxxxxxxxx'));
-  host.appendChild(makeInputField('User ID', 'form-user-id', 'number',
-    existing && existing.userId > 0 ? String(existing.userId) : '', '123',
-    '연결 테스트로 자동 입력'));
   host.appendChild(makeInputField('라벨 (선택)', 'form-label', 'text',
     existing?.label ?? '', '예: 사내 GitLab'));
+  scopeCtl = createScopeControl(existing);
+  host.appendChild(scopeCtl.el);
 }
 
 function renderGitHubFields(host: HTMLElement, existing: GitHubConfig | null): void {
@@ -210,12 +231,11 @@ export function buildConfigFromForm(existingId: string | undefined): GitConfig |
   if (!token) return null;
   if (type === 'gitlab') {
     const url = getVal('form-url');
-    const userIdStr = getVal('form-user-id');
-    const userId = Number(userIdStr);
     if (!url) return null;
     return {
       type: 'gitlab', id, label, url, token,
-      userId: Number.isInteger(userId) && userId > 0 ? userId : 0,
+      userId: token === testedToken ? detectedUserId : 0,
+      ...(scopeCtl?.value() ?? {}),
     };
   }
   const username = getVal('form-username');
@@ -231,32 +251,31 @@ function generateId(): string {
 
 async function runTest(
   cfg: GitConfig, btn: HTMLButtonElement, out: HTMLSpanElement,
-): Promise<void> {
+): Promise<boolean> {
   btn.disabled = true;
   showStatus(out, 'loading', '테스트 중…');
   try {
     const r: GitConnectionTestResult = await window.electronAPI.testGitConnection({ config: cfg });
     if (r.success) {
       if (cfg.type === 'gitlab' && r.userId) {
-        const uidInput = document.getElementById('form-user-id');
-        if (uidInput instanceof HTMLInputElement && !uidInput.value) {
-          uidInput.value = String(r.userId);
-        }
+        detectedUserId = r.userId;
+        testedToken = cfg.token;
+        scopeCtl?.apply(r);
       }
       if (cfg.type === 'github' && r.username) {
         const unInput = document.getElementById('form-username');
         if (unInput instanceof HTMLInputElement && !unInput.value) unInput.value = r.username;
       }
-      const detail = cfg.type === 'gitlab' && r.userId
-        ? ` · User ID ${r.userId}`
-        : r.username ? ` · @${r.username}` : '';
-      showStatus(out, 'success', `연결 성공${detail}`);
-    } else {
-      showStatus(out, 'error', r.error ?? '알 수 없는 오류');
+      const kind = r.tokenKind === 'project' ? ' · 프로젝트 토큰' : '';
+      showStatus(out, 'success', `연결 성공${r.username ? ` · @${r.username}` : ''}${kind}`);
+      return true;
     }
+    showStatus(out, 'error', r.error ?? '알 수 없는 오류');
+    return false;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     showStatus(out, 'error', `IPC 오류: ${msg}`);
+    return false;
   } finally {
     btn.disabled = false;
   }

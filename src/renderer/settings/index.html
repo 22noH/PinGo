@@ -30,7 +30,7 @@
   <main class="settings-root">
     <!-- ── 헤더 ─────────────────────────────────────────── -->
     <header class="settings-header">
-      <p class="settings-subtitle">Git 연결 · AI Provider · 폴링 / 알림</p>
+      <p class="settings-subtitle">연결한 저장소의 MR/PR 을 지켜보고 AI 로 리뷰합니다</p>
     </header>
 
     <!-- ── 탭 바 ────────────────────────────────────────── -->
@@ -56,17 +56,18 @@
         </svg>
         Jira
       </button>
-      <button id="tab-filters" type="button" role="tab" aria-controls="panel-filters" aria-selected="false" class="tab-item">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-        </svg>
-        프로젝트 필터
-      </button>
       <button id="tab-autoreview" type="button" role="tab" aria-controls="panel-autoreview" aria-selected="false" class="tab-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
         </svg>
         자동 리뷰
+      </button>
+      <button id="tab-general" type="button" role="tab" aria-controls="panel-general" aria-selected="false" class="tab-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
+          <circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="18" r="2"/>
+        </svg>
+        일반
       </button>
     </nav>
 
@@ -148,13 +149,6 @@
         </div>
       </div>
 
-      <!-- [프로젝트 필터] -->
-      <div id="panel-filters" role="tabpanel" aria-labelledby="tab-filters" class="tab-panel" hidden>
-        <div id="filters-host" class="col" style="gap: var(--space-4);">
-          <div class="connection-empty">프로젝트 필터 UI 는 프로젝트 목록 로드 후 자동 렌더됩니다.</div>
-        </div>
-      </div>
-
       <!-- [자동 리뷰] -->
       <div id="panel-autoreview" role="tabpanel" aria-labelledby="tab-autoreview" class="tab-panel" hidden>
         <div class="field">
@@ -177,8 +171,8 @@
           </select>
           <span class="field-hint">
             <strong>전체</strong>로 두면 남의 MR/PR 에도 내 계정으로 AI 리뷰 댓글이 달립니다.
-            대상이 많으면 순서대로 처리되며, MR 하나당 클론+리뷰에 수 분씩 걸립니다.
-            프로젝트 필터 탭에서 대상 프로젝트를 좁혀서 쓰세요.
+            어느 프로젝트까지 볼지는 <strong>Git 연결</strong> 탭의 각 연결에서 정합니다.
+            프로젝트 토큰 연결은 이 설정과 무관하게 그 프로젝트의 MR 전부를 리뷰합니다.
           </span>
         </div>
 
@@ -252,46 +246,46 @@
           </div>
         </div>
       </div>
-    </section>
+      <!-- [일반] 폴링 / 알림 / 시작 프로그램 / 단축키 -->
+      <div id="panel-general" role="tabpanel" aria-labelledby="tab-general" class="tab-panel" hidden>
+        <div class="field">
+          <label class="field-label" for="poll-interval">
+            폴링 간격 <span class="text-accent text-mono" id="poll-value">30s</span>
+          </label>
+          <input id="poll-interval" class="slider" type="range" min="10" max="300" step="5" value="30">
+          <span class="field-hint">10초 ~ 5분</span>
+        </div>
 
-    <!-- ── 공통 하단 (폴링/알림) ────────────────────────── -->
-    <section class="settings-common">
-      <div class="field">
-        <label class="field-label" for="poll-interval">
-          폴링 간격 <span class="text-accent text-mono" id="poll-value">30s</span>
-        </label>
-        <input id="poll-interval" class="slider" type="range" min="10" max="300" step="5" value="30">
-        <span class="field-hint">10초 ~ 5분</span>
-      </div>
+        <div class="field">
+          <label class="checkbox-row">
+            <input id="notification-enabled" type="checkbox" checked>
+            <span class="checkbox-label">알림 활성화 (토스트 표시)</span>
+          </label>
+        </div>
 
-      <div class="field">
-        <label class="checkbox-row">
-          <input id="notification-enabled" type="checkbox" checked>
-          <span class="checkbox-label">알림 활성화 (토스트 표시)</span>
-        </label>
-      </div>
+        <div class="field">
+          <label class="checkbox-row">
+            <input id="comment-notifications-enabled" type="checkbox" checked>
+            <span class="checkbox-label">멘션 알림</span>
+          </label>
+          <span class="field-hint">MR/PR 댓글에 내가 @멘션되면 알림.</span>
+        </div>
 
-      <div class="field">
-        <label class="checkbox-row">
-          <input id="comment-notifications-enabled" type="checkbox" checked>
-          <span class="checkbox-label">멘션 알림</span>
-        </label>
-        <span class="field-hint">MR/PR 댓글에 내가 @멘션되면 알림.</span>
-      </div>
+        <div class="field">
+          <label class="checkbox-row">
+            <input id="launch-on-startup" type="checkbox">
+            <span class="checkbox-label">Windows 시작 시 자동 실행</span>
+          </label>
+          <span class="field-hint">로그인하면 Pingo가 트레이에 자동으로 시작됩니다.</span>
+        </div>
 
-      <div class="field">
-        <label class="checkbox-row">
-          <input id="launch-on-startup" type="checkbox">
-          <span class="checkbox-label">Windows 시작 시 자동 실행</span>
-        </label>
-        <span class="field-hint">로그인하면 Pingo가 트레이에 자동으로 시작됩니다.</span>
-      </div>
-
-      <div class="field">
-        <label class="field-label" for="dashboard-hotkey">대시보드 단축키</label>
-        <input id="dashboard-hotkey" type="text" class="input" autocomplete="off" spellcheck="false"
-               placeholder="CommandOrControl+Shift+D">
-        <span class="field-hint">전역 단축키 — 어디서든 누르면 대시보드 창이 열립니다. 비우면 비활성. 포맷: <code>CommandOrControl+Shift+D</code>, <code>Alt+F12</code> 등 Electron accelerator.</span>
+        <div class="field">
+          <label class="field-label" for="dashboard-hotkey">대시보드 단축키</label>
+          <input id="dashboard-hotkey" type="text" class="input" autocomplete="off" spellcheck="false"
+                 placeholder="CommandOrControl+Shift+D">
+          <span class="field-hint">전역 단축키 — 어디서든 누르면 대시보드 창이 열립니다. 비우면 비활성. 포맷: <code>CommandOrControl+Shift+D</code>, <code>Alt+F12</code> 등 Electron accelerator.</span>
+        </div>
+    
       </div>
     </section>
 

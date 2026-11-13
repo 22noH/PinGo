@@ -24,6 +24,7 @@ import type {
 } from '../../../shared/types';
 import type { GitProvider } from './git-provider';
 import * as V3 from './gitlab-provider-v3';
+import { fetchScopedOpenItems, inspectGitLabScope, isProjectInScope, resolveGitLabScope } from './gitlab-scope';
 
 interface GitLabUserBrief {
   id: number;
@@ -102,10 +103,6 @@ function classifyGitLabError(err: unknown): Error {
   return new Error('알 수 없는 GitLab 오류');
 }
 
-/** 열린 MR 목록 페이지 크기 / 최대 페이지 수 — 200건까지 본다 */
-const OPEN_ITEMS_PER_PAGE = 50;
-const MAX_OPEN_ITEM_PAGES = 4;
-
 export class GitLabProvider implements GitProvider {
   readonly config: GitLabConfig;
   private readonly client: AxiosInstance;
@@ -134,28 +131,19 @@ export class GitLabProvider implements GitProvider {
   }
 
   async fetchOpenItems(signal?: AbortSignal): Promise<ReviewItemSummary[]> {
-    // 사용자 필터 없음 — token이 접근 가능한 모든 open MR. "올라오면 무조건 알람".
+    // 연결 범위 안의 열린 MR 전부 — 프로젝트 토큰이면 그 프로젝트만 (gitlab-scope.ts).
     // 리뷰어 지정/멘션 감지는 item.reviewers 및 note.mentionsCurrentUser 로 별도 처리.
-    // 페이지를 따라간다 — 한 페이지(50건)만 보면 오래된 열린 MR 은 목록에서 빠져
-    // 자동 리뷰가 영영 안 잡히고, 캐시까지 정리돼 다시 보일 때 중복 리뷰가 달린다.
-    const all: GitLabMRListItem[] = [];
-    for (let page = 1; page <= MAX_OPEN_ITEM_PAGES; page += 1) {
-      const res = await this.client.get<GitLabMRListItem[]>('/merge_requests', {
-        params: {
-          scope: 'all',
-          state: 'opened',
-          order_by: 'updated_at',
-          sort: 'desc',
-          per_page: OPEN_ITEMS_PER_PAGE,
-          page,
-        },
-        signal,
-      });
-      all.push(...res.data);
-      const next = String(res.headers['x-next-page'] ?? '').trim();
-      if (!next || res.data.length < OPEN_ITEMS_PER_PAGE) break;
-    }
-    return all.map((raw) => this.normalize(raw));
+    const scope = await resolveGitLabScope(this.client, this.config, signal);
+    const raws = await fetchScopedOpenItems<GitLabMRListItem>(this.client, this.config.id, scope, signal);
+    return raws.map((raw) => this.normalize(raw));
+  }
+
+  /** 범위 밖 프로젝트에는 쓰지 않는다 — 폴링이 잘못돼도 남의 프로젝트에 댓글이 달리지 않게 하는 마지막 방어선 */
+  private async outOfScope(item: ReviewItemSummary): Promise<string | null> {
+    const scope = await resolveGitLabScope(this.client, this.config);
+    if (isProjectInScope(scope, item.projectId)) return null;
+    log.warn(`gitlab[${this.config.id.slice(0, 8)}]: 범위 밖 프로젝트 쓰기 차단 project=${item.projectId}`);
+    return '이 연결의 대상 프로젝트가 아닙니다 (설정 > Git 연결에서 범위 확인)';
   }
 
   async fetchChanges(item: ReviewItemSummary): Promise<ReviewItemWithChanges> {
@@ -219,6 +207,8 @@ export class GitLabProvider implements GitProvider {
     body: string,
   ): Promise<CommentPostResult> {
     try {
+      const blocked = await this.outOfScope(item);
+      if (blocked) return { success: false, error: blocked };
       const res = await this.client.post<{ id: string }>(
         `/projects/${item.projectId}/merge_requests/${item.itemId}/discussions`,
         { body },
@@ -240,11 +230,13 @@ export class GitLabProvider implements GitProvider {
 
   async testConnection(): Promise<ConnectionTestResult> {
     try {
-      const res = await this.client.get<GitLabUserResponse>('/user');
+      const scope = await inspectGitLabScope(this.client, this.config);
       return {
         success: true,
-        userId: res.data.id,
-        username: res.data.username,
+        userId: scope.userId,
+        username: scope.username,
+        tokenKind: scope.tokenKind,
+        memberProjects: scope.memberProjects,
       };
     } catch (err) {
       return { success: false, error: classifyGitLabError(err).message };
@@ -270,7 +262,9 @@ export class GitLabProvider implements GitProvider {
   listProjects(signal?: AbortSignal): Promise<import('../../../shared/types').GitProjectSummary[]> {
     return V3.listProjects(this.client, signal);
   }
-  postReply(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentPostResult> {
+  async postReply(item: ReviewItemSummary, payload: CommentReplyPayload): Promise<CommentPostResult> {
+    const blocked = await this.outOfScope(item);
+    if (blocked) return { success: false, error: blocked };
     return V3.postReply(this.client, item, payload);
   }
   resolveDiscussion(item: ReviewItemSummary, discussionId: string, resolved?: boolean): Promise<void> {

@@ -94,8 +94,6 @@ export const UPDATE_INSTALL = 'update:install' as const;
 export const UPDATE_READY = 'update:ready' as const;
 
 // ── v3 신규 IPC — 프로젝트 필터 ────────────────────────────
-export const PROJECT_FILTERS_LOAD = 'project-filters:load' as const;
-export const PROJECT_FILTERS_SAVE = 'project-filters:save' as const;
 
 /** 목록 윈도우 — 현재 open MR + interaction 조회 */
 export const LIST_LOAD = 'list:load' as const;
@@ -146,8 +144,6 @@ export type RendererToMainChannel =
   | typeof PROJECT_LIST
   | typeof REVIEW_CACHE_LOAD
   | typeof REVIEW_CACHE_SAVE
-  | typeof PROJECT_FILTERS_LOAD
-  | typeof PROJECT_FILTERS_SAVE
   | typeof PIPELINE_RUN
   | typeof MERGE_AI_START
   | typeof MERGE_AI_PUSH
@@ -169,6 +165,14 @@ export const DEFAULT_AUTO_REVIEW_CONCURRENCY = 5;
  * 재사용 체크아웃은 10초 안팎이라 체감이 작다.
  */
 export const DEFAULT_SLOTS_PER_PROJECT = 2;
+/** GitLab 열린 MR 목록: 페이지 크기 × 최대 페이지 (조회 1건당 200건까지) */
+export const GITLAB_OPEN_ITEMS_PER_PAGE = 50;
+export const GITLAB_OPEN_ITEMS_MAX_PAGES = 4;
+/** 연결 범위(토큰 종류·멤버 프로젝트) 캐시 수명 / 멤버 프로젝트 조회 최대 페이지(×100) */
+export const GITLAB_SCOPE_TTL_MS = 10 * 60_000;
+export const GITLAB_SCOPE_PROJECT_MAX_PAGES = 5;
+/** 범위 프로젝트가 이 수 이하면 프로젝트별로 조회, 넘으면 전역 목록을 받아 거른다 */
+export const GITLAB_PER_PROJECT_POLL_MAX = 20;
 export const MAX_SEEN_ITEM_IDS = 200;
 export const MAX_RECENT_ITEMS = 20;
 /**
